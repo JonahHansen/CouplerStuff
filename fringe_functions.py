@@ -116,7 +116,7 @@ def phaseshift_glass(lam,length,lam_0):
     return phase_shift
 
 
-def cal_coherence(delay_bad,delay_fix,SNR,wavelengths,bandpass,true_params):
+def cal_coherence(delay_bad,delay_fix,throughput,wavelengths,bandpass,true_params):
     """
     Calculates the complex coherence from a simulated tricoupler
 
@@ -124,7 +124,7 @@ def cal_coherence(delay_bad,delay_fix,SNR,wavelengths,bandpass,true_params):
         delay_bad = delay caused by the atmosphere (want to remove)
         delay_fix = delay caused by the delay line
                     (effective delay is delay_bad - delay_fix)
-        SNR = Signal to noise ratio (to make the data noisy)
+        throughput = percentage of the flux that lands on a pixel
         wavelengths = wavelength channels to use
         bandpass = wavelength channel width
         true_params = "fake" true parameters of the source as a tuple of:
@@ -138,14 +138,17 @@ def cal_coherence(delay_bad,delay_fix,SNR,wavelengths,bandpass,true_params):
 
     eff_delay = delay_bad - delay_fix #Calculate effective delay
 
+    eff_F_0 = F_0*throughput
+
     fluxes = np.zeros((3,len(wavelengths)))
     i = 0
     for output_offset in 2*np.pi/3*np.array([0,1,2]):
         #Calculate intensity output of each fiber (each output has an offset)
-        flux = fringe_flux(eff_delay,wavelengths,bandpass,F_0,vis,
+        flux = fringe_flux(eff_delay,wavelengths,bandpass,eff_F_0,vis,
                            coh_phase,offset=output_offset)
-        #Make it noisy based on the SNR (sigma = intensity/SNR)
-        fluxes[i] = np.random.normal(flux,np.abs(flux/SNR))
+        #Make it noisy based on shot noise and read noise
+        shot_noise = np.random.poisson(flux)
+        fluxes[i] = np.round(shot_noise + np.random.normal(scale=1.6))
         i += 1
 
     #import pdb; pdb.set_trace()

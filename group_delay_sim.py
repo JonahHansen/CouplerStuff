@@ -5,11 +5,25 @@ import fringe_functions as ff
 """
 Simluates the end output of the interferometer (using intensity equation)
 with an incorrect delay, tries to calculate the group delay from phasors,
-applies the delay correction, and then calculates the estimated visibility^2 
+applies the delay correction, and then calculates the estimated visibility^2
 """
 
+#R band constants:
+R_flux = 2.19e-11 #W/m^2/nm
+R_bandpass = 133 #nm
+nu = 4.28e14
+h = 6.62607015e-34 #Js
+
+#Telescope details:
+D = 0.1#m
+int_time = 0.005#s
+
 #Fake Data:
-F_0 = 1.5
+Rmag_star = 7
+f_star = R_flux*10**(-0.4*Rmag_star)*R_bandpass #W/m^2
+E_star = np.pi*(D/2)**2*int_time*f_star #J
+F_0 = E_star/(h*nu) #(photons per telescope per integration)
+
 coh_phase = np.pi/6
 vis = 0.5
 true_params = (F_0,vis,coh_phase)
@@ -20,13 +34,14 @@ start_wavelength = 600e-9
 end_wavelength = 750e-9
 wavelengths = np.arange(start_wavelength,end_wavelength,bandpass)[:-1] + 0.5*bandpass
 
+#Throughput (tricoupler with throughput eta = 0.5)
+throughput = 1/3*0.5*1/len(wavelengths)
 #Delay to try and recover (pretend it's caused by the atmosphere)
-bad_delay = 1.5e-5
-#Signal to noise ratio in order to add noise to the intensities
-SNR = 100000
+bad_delay = -1.5e-5
+
 
 #Find complex coherence
-gamma = ff.cal_coherence(bad_delay,0,SNR,wavelengths,bandpass,true_params)
+gamma = ff.cal_coherence(bad_delay,0,throughput,wavelengths,bandpass,true_params)
 
 #List of trial delays to scan
 trial_delays = np.linspace(-5e-5,5e-5,10000)

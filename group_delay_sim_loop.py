@@ -13,9 +13,22 @@ changing visibilities. Also calculates the time taken for each loop of fringe
 tracking and science.
 
 """
+#R band constants:
+R_flux = 2.19e-11 #W/m^2/nm
+R_bandpass = 133 #nm
+nu = 4.28e14
+h = 6.62607015e-34 #Js
+
+#Telescope details:
+D = 0.1#m
+int_time = 0.005#s
 
 #Fake Data:
-F_0 = 1.5
+Rmag_star = 7
+f_star = R_flux*10**(-0.4*Rmag_star)*R_bandpass #W/m^2
+E_star = np.pi*(D/2)**2*int_time*f_star #J
+F_0 = E_star/(h*nu) #(photons per telescope per integration)
+
 coh_phase = np.pi/6
 vis = 0.5
 true_params = (F_0,vis,coh_phase)
@@ -26,22 +39,37 @@ start_wavelength = 600e-9
 end_wavelength = 750e-9
 wavelengths = np.arange(start_wavelength,end_wavelength,bandpass)[:-1] + 0.5*bandpass
 
-#SNRs for fringe tracking and science
-SNR_fringe = 10
-SNR_science =10
+#Throughput (tricoupler with throughput eta = 0.5)
+throughput = 1/3*0.5*1/len(wavelengths)
 
 #Maximum and rms error expected in delay space
 error_rms = 2e-5
 error_max = 5e-5
 
 #List of trial delays to scan
-trial_delays = np.linspace(-error_max,error_max,2000)
+trial_delays = np.linspace(-error_max,error_max,1000)
 
 fix_delay=0
 vis_array=[]
 
 #Number of integrations
-n_iter = 1000
+n_iter = 100
+
+#Calc Bias in visibility
+for j in range(n_iter):
+
+    #Generate a random delay based on the error rms
+    bad_delay = 2*error_rms*np.random.random_sample() - error_rms
+
+    #Calculate the output complex coherence
+    gamma = ff.cal_coherence(bad_delay,0,throughput,wavelengths,bandpass,(F_0,0,np.pi/3))
+
+    #Estimate the visibility based on the corrected coherence and append to list
+    vis_array.append(np.mean(np.abs(gamma)**2))
+
+bias_vis = np.mean(vis_array)
+
+vis_array=[]
 
 #Simulate a loop of fringe tracking and science
 for j in range(n_iter):
@@ -52,16 +80,16 @@ for j in range(n_iter):
     bad_delay = 2*error_rms*np.random.random_sample() - error_rms
 
     #Calculate the output complex coherence
-    gamma = ff.cal_coherence(bad_delay,0,SNR_fringe,wavelengths,bandpass,true_params)
+    gamma = ff.cal_coherence(bad_delay,0,throughput,wavelengths,bandpass,true_params)
 
     #Estimate the group delay
     fix_delay = ff.find_delay(gamma,trial_delays,wavelengths)
 
     #Adjust the delay and calculate the new coherence
-    new_gamma = ff.cal_coherence(bad_delay,fix_delay,SNR_science,wavelengths,bandpass,true_params)
+    new_gamma = ff.cal_coherence(bad_delay,fix_delay,throughput,wavelengths,bandpass,true_params)
 
     #Estimate the visibility based on the corrected coherence and append to list
-    vis_array.append(np.mean(np.abs(new_gamma)**2))
+    vis_array.append(np.mean(np.abs(new_gamma)**2)-bias_vis)
 
     #Print time it takes to perform fringe tracking and science
     time_end = time.time()
