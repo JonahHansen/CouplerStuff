@@ -21,10 +21,10 @@ h = 6.62607015e-34 #Js
 
 #Telescope details:
 D = 0.1#m
-int_time = 0.005#s
+int_time = 0.01#s
 
 #Fake Data:
-Rmag_star = 7
+Rmag_star = 5
 f_star = R_flux*10**(-0.4*Rmag_star)*R_bandpass #W/m^2
 E_star = np.pi*(D/2)**2*int_time*f_star #J
 F_0 = E_star/(h*nu) #(photons per telescope per integration)
@@ -34,7 +34,7 @@ vis = 0.5
 true_params = (F_0,vis,coh_phase)
 
 #List of wavelength channels, with spacing 20nm.
-bandpass = 10e-9
+bandpass = 15e-9
 start_wavelength = 600e-9
 end_wavelength = 750e-9
 wavelengths = np.arange(start_wavelength,end_wavelength,bandpass)[:-1] + 0.5*bandpass
@@ -53,7 +53,7 @@ fix_delay=0
 vis_array=[]
 
 #Number of integrations
-n_iter = 100
+n_iter = 500
 
 #Calc Bias in visibility
 for j in range(n_iter):
@@ -67,7 +67,7 @@ for j in range(n_iter):
     #Estimate the visibility based on the corrected coherence and append to list
     vis_array.append(np.mean(np.abs(gamma)**2))
 
-bias_vis = np.mean(vis_array)
+bias_vis = np.median(vis_array)
 
 vis_array=[]
 
@@ -86,7 +86,7 @@ for j in range(n_iter):
     fix_delay = ff.find_delay(gamma,trial_delays,wavelengths)
 
     #Adjust the delay and calculate the new coherence
-    new_gamma = ff.cal_coherence(bad_delay,fix_delay,throughput,wavelengths,bandpass,true_params)
+    new_gamma = gamma/np.sinc(fix_delay*bandpass/wavelengths**2)*np.exp(-1j*2*np.pi*fix_delay/wavelengths)
 
     #Estimate the visibility based on the corrected coherence and append to list
     vis_array.append(np.mean(np.abs(new_gamma)**2)-bias_vis)
@@ -96,7 +96,7 @@ for j in range(n_iter):
     print(f"Number {j}, Time elapsed = {1000*(time_end-time_start)} ms")
 
 #Print the average of the estimated visibilities
-print(np.mean(vis_array))
+print(np.median(vis_array))
 
 #Plot the estimated visibilities as a function of time
 plt.plot(0.01*np.arange(len(vis_array)),vis_array,marker=".",ls="")
