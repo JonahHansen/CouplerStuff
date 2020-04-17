@@ -159,6 +159,51 @@ def cal_coherence(delay_bad,delay_fix,throughput,wavelengths,bandpass,true_param
     return gamma
 
 
+def cal_real_coherence(delay_bad,delay_fix,throughput,wavelengths,bandpass,length,lam_0,true_params):
+    """
+    Calculates the complex coherence from a simulated AC coupler
+
+    Inputs:
+        delay_bad = delay caused by the atmosphere (want to remove)
+        delay_fix = delay caused by the delay line
+                    (effective delay is delay_bad - delay_fix)
+        throughput = percentage of the flux that lands on a pixel
+        wavelengths = wavelength channels to use
+        bandpass = wavelength channel width
+        length = Length of extra glass for dispersion
+        lam_0 = Central wavelength for dispersion
+        true_params = "fake" true parameters of the source as a tuple of:
+                       (Flux, Visibility, Phase of coherence (with turbulence))
+    Outputs:
+        Complex coherence
+
+    """
+
+    F_0,vis,coh_phase = true_params
+
+    eff_delay = delay_bad - delay_fix #Calculate effective delay
+
+    eff_F_0 = F_0*throughput
+
+    fluxes = np.zeros((2,len(wavelengths)))
+    i = 0
+    for output_offset in np.pi*np.array([0,1]):
+        #Calculate intensity output of each fiber (each output has an offset)
+        flux = fringe_flux(eff_delay,wavelengths,bandpass,eff_F_0,vis,
+                           coh_phase,phaseshift_glass(wavelengths,length,lam_0),offset=output_offset)
+        #Make it noisy based on shot noise and read noise
+        shot_noise = np.random.poisson(flux)
+        fluxes[i] = np.round(shot_noise + np.random.normal(scale=1.6))
+        i += 1
+
+    #import pdb; pdb.set_trace()
+
+    #Combine the outputs into the coherence
+    gamma_r = (fluxes[1] - fluxes[0])/(fluxes[0]+fluxes[1])
+
+    return gamma_r
+
+
 def find_white_fringe(gamma,delay,wavelengths):
     """
     Given a complex coherence and a trial delay, find the "white_fringe" of that
@@ -176,6 +221,27 @@ def find_white_fringe(gamma,delay,wavelengths):
     phasors = gamma*np.exp(1j*2*np.pi/wavelengths*delay)
 
     return np.abs(np.sum(phasors))**2 #Sum them up and take the intensity
+
+
+def calc_chi_2_AC(gamma_r,delay,wavelengths,length,lam_0):
+    """
+    Given a complex coherence and a trial delay, find the "white_fringe" of that
+    delay
+
+    Inputs:
+        gamma_r = Real part of the Complex coherence
+        delay = trial delay
+        wavelengths = list of wavelength channels
+        length = length of the glass extension
+        lam_0 = central wavelength for dispersion
+    Outputs:
+        Chi^2
+    """
+
+    #Calculate each element of the chi^2
+    chi_lam = (np.cos(2*np.pi*delay/wavelengths - phaseshift_glass(wavelengths,length,lam_0)) - gamma_r)**2
+
+    return np.sum(chi_lam) #Sum them up
 
 
 def find_delay(gamma,trial_delays,wavelengths,plot=False):
@@ -218,3 +284,47 @@ def find_delay(gamma,trial_delays,wavelengths,plot=False):
                 delay_max = delay
 
     return delay_max
+
+
+def find_delay_AC(gamma_r,trial_delays,wavelengths,length,lam_0,plot=False):
+    """
+    Given a complex coherence and a list of trial delays, find an estimate
+    of the group delay
+
+    Inputs:
+        gamma = Complex coherence
+        trial_delays = list of trial delays
+        wavelengths = list of wavelength channels
+        length = length of the glass extension
+        lam_0 = central wavelength for dispersion
+        plot = Whether to plot the white light fringe intensity against the
+               trial delays.
+    Output:
+        Estimation of the group delay
+
+    """
+
+    chi_2_min = 1e10
+    if plot:
+        chi_2_plot_array = []
+        for delay in trial_delays:
+            #Find the white light intensity of a given trial delay
+            chi_2 = calc_chi_2_AC(gamma_r,delay,wavelengths,length,lam_0)
+            chi_2_plot_array.append(chi_2)
+            #Is the intensity bigger than any trial delay that's come before?
+            if chi_2 < chi_2_min:
+                chi_2_min = chi_2
+                delay_min = delay
+        plt.plot(trial_delays,chi_2_plot_array) #Plot it
+        plt.show()
+
+    else:
+        for delay in trial_delays:
+            #Find the white light intensity of a given trial delay
+            chi_2 = calc_chi_2_AC(gamma_r,delay,wavelengths,length,lam_0)
+            #Is the intensity bigger than any trial delay that's come before?
+            if chi_2 < chi_2_min:
+                chi_2_min = chi_2
+                delay_min = delay
+
+    return delay_min
