@@ -37,6 +37,9 @@ def fringe_flux(x,lam,bandpass,F_0,vis,coh_phase,disp_phase=0,offset=0):
     return i
 
 
+################### Refractive Index and Dispersion Functions #################
+
+
 def sellmeier_equation(lam):
     """
     Calculate the refractive index of BK7 glass at a given wavelength
@@ -116,7 +119,10 @@ def phaseshift_glass(lam,length,lam_0):
     return phase_shift
 
 
-def cal_coherence(delay_bad,delay_fix,throughput,wavelengths,bandpass,true_params):
+####################### Tricoupler Functions ##################################
+
+
+def cal_coherence(delay_bad,delay_fix,wavelengths,bandpass,true_params):
     """
     Calculates the complex coherence from a simulated tricoupler
 
@@ -124,13 +130,12 @@ def cal_coherence(delay_bad,delay_fix,throughput,wavelengths,bandpass,true_param
         delay_bad = delay caused by the atmosphere (want to remove)
         delay_fix = delay caused by the delay line
                     (effective delay is delay_bad - delay_fix)
-        throughput = percentage of the flux that lands on a pixel
         wavelengths = wavelength channels to use
         bandpass = wavelength channel width
         true_params = "fake" true parameters of the source as a tuple of:
-                       (Flux, Visibility, Phase of coherence (with turbulence))
+                      (Flux (reduced by throughput), Visibility, Phase of coherence (with turbulence))
     Outputs:
-        Complex coherence
+        Complex coherence for each wavelength
 
     """
 
@@ -138,70 +143,21 @@ def cal_coherence(delay_bad,delay_fix,throughput,wavelengths,bandpass,true_param
 
     eff_delay = delay_bad - delay_fix #Calculate effective delay
 
-    eff_F_0 = F_0*throughput
-
     fluxes = np.zeros((3,len(wavelengths)))
     i = 0
     for output_offset in 2*np.pi/3*np.array([0,1,2]):
         #Calculate intensity output of each fiber (each output has an offset)
-        flux = fringe_flux(eff_delay,wavelengths,bandpass,eff_F_0,vis,
+        flux = fringe_flux(eff_delay,wavelengths,bandpass,F_0,vis,
                            coh_phase,offset=output_offset)
         #Make it noisy based on shot noise and read noise
         shot_noise = np.random.poisson(flux)
         fluxes[i] = np.round(shot_noise + np.random.normal(scale=1.6))
         i += 1
 
-    #import pdb; pdb.set_trace()
-
     #Combine the outputs into the coherence
     gamma = (3*fluxes[0] + np.sqrt(3)*1j*(fluxes[2]-fluxes[1]))/np.sum(fluxes,axis=0)-1
 
     return gamma
-
-
-def cal_real_coherence(delay_bad,delay_fix,throughput,wavelengths,bandpass,length,lam_0,true_params):
-    """
-    Calculates the complex coherence from a simulated AC coupler
-
-    Inputs:
-        delay_bad = delay caused by the atmosphere (want to remove)
-        delay_fix = delay caused by the delay line
-                    (effective delay is delay_bad - delay_fix)
-        throughput = percentage of the flux that lands on a pixel
-        wavelengths = wavelength channels to use
-        bandpass = wavelength channel width
-        length = Length of extra glass for dispersion
-        lam_0 = Central wavelength for dispersion
-        true_params = "fake" true parameters of the source as a tuple of:
-                       (Flux, Visibility, Phase of coherence (with turbulence))
-    Outputs:
-        Complex coherence
-
-    """
-
-    F_0,vis,coh_phase = true_params
-
-    eff_delay = delay_bad - delay_fix #Calculate effective delay
-
-    eff_F_0 = F_0*throughput
-
-    fluxes = np.zeros((2,len(wavelengths)))
-    i = 0
-    for output_offset in np.pi*np.array([0,1]):
-        #Calculate intensity output of each fiber (each output has an offset)
-        flux = fringe_flux(eff_delay,wavelengths,bandpass,eff_F_0,vis,
-                           coh_phase,phaseshift_glass(wavelengths,length,lam_0),offset=output_offset)
-        #Make it noisy based on shot noise and read noise
-        shot_noise = np.random.poisson(flux)
-        fluxes[i] = np.round(shot_noise + np.random.normal(scale=1.6))
-        i += 1
-
-    #import pdb; pdb.set_trace()
-
-    #Combine the outputs into the coherence
-    gamma_r = (fluxes[1] - fluxes[0])/(fluxes[0]+fluxes[1])
-
-    return gamma_r
 
 
 def find_white_fringe(gamma,delay,wavelengths):
@@ -223,10 +179,93 @@ def find_white_fringe(gamma,delay,wavelengths):
     return np.abs(np.sum(phasors))**2 #Sum them up and take the intensity
 
 
+def group_delay_envelope(gamma,trial_delays,wavelengths,plot=False):
+    """
+    Given a complex coherence and a list of trial delays, calculate the group
+    delay envelope
+
+    Inputs:
+        gamma = Complex coherence
+        trial_delays = list of trial delays
+        wavelengths = list of wavelength channels
+        plot = Whether to plot the white light fringe intensity against the
+               trial delays.
+    Output:
+        List of white light fringe intensities for each trial delay
+
+    """
+
+    F_array = []
+    for delay in trial_delays:
+        #Find the white light intensity of a given trial delay
+        F = find_white_fringe(gamma,delay,wavelengths)
+        F_array.append(F)
+    if plot:
+        plt.plot(trial_delays,F_array) #Plot it
+        plt.show()
+
+    return np.array(F_array)
+
+
+def find_delay(delay_envelope,trial_delays):
+    """
+    Given a group delay envelope, find an estimate of the group delay
+
+    Inputs:
+        delay_envelope = List of white light fringe intensities for each trial delay
+        trial_delays = list of trial delays
+
+    Output:
+        Estimation of the group delay
+
+    """
+
+    return trial_delays[np.argmax(delay_envelope)]
+
+
+########################## AC Functions #######################################
+
+
+def cal_AC_output(delay_bad,delay_fix,wavelengths,bandpass,length,lam_0,true_params):
+    """
+    Calculates the flux output from a simulated AC coupler
+
+    Inputs:
+        delay_bad = delay caused by the atmosphere (want to remove)
+        delay_fix = delay caused by the delay line
+                    (effective delay is delay_bad - delay_fix)
+        wavelengths = wavelength channels to use
+        bandpass = wavelength channel width
+        length = Length of extra glass for dispersion
+        lam_0 = Central wavelength for dispersion
+        true_params = "fake" true parameters of the source as a tuple of:
+              (Flux (reduced by throughput), Visibility, Phase of coherence (with turbulence))
+    Outputs:
+        Fluxes A and C for each wavelength
+
+    """
+
+    F_0,vis,coh_phase = true_params
+
+    eff_delay = delay_bad - delay_fix #Calculate effective delay
+
+    fluxes = np.zeros((2,len(wavelengths)))
+    i = 0
+    for output_offset in np.pi*np.array([0,1]):
+        #Calculate intensity output of each fiber (each output has an offset)
+        flux = fringe_flux(eff_delay,wavelengths,bandpass,F_0,vis,
+                           coh_phase,phaseshift_glass(wavelengths,length,lam_0),offset=output_offset)
+        #Make it noisy based on shot noise and read noise
+        shot_noise = np.random.poisson(flux)
+        fluxes[i] = np.round(shot_noise + np.random.normal(scale=1.6))
+        i += 1
+
+    return fluxes
+
+
 def calc_chi_2_AC(gamma_r,delay,wavelengths,length,lam_0):
     """
-    Given a complex coherence and a trial delay, find the "white_fringe" of that
-    delay
+    Given the real part of the coherence and a trial delay, calculate the chi^2 value
 
     Inputs:
         gamma_r = Real part of the Complex coherence
@@ -244,52 +283,10 @@ def calc_chi_2_AC(gamma_r,delay,wavelengths,length,lam_0):
     return np.sum(chi_lam) #Sum them up
 
 
-def find_delay(gamma,trial_delays,wavelengths,plot=False):
-    """
-    Given a complex coherence and a list of trial delays, find an estimate
-    of the group delay
-
-    Inputs:
-        gamma = Complex coherence
-        trial_delays = list of trial delays
-        wavelengths = list of wavelength channels
-        plot = Whether to plot the white light fringe intensity against the
-               trial delays.
-    Output:
-        Estimation of the group delay
-
-    """
-
-    F_max = 0
-    if plot:
-        F_plot_array = []
-        for delay in trial_delays:
-            #Find the white light intensity of a given trial delay
-            F = find_white_fringe(gamma,delay,wavelengths)
-            F_plot_array.append(F)
-            #Is the intensity bigger than any trial delay that's come before?
-            if F > F_max:
-                F_max = F
-                delay_max = delay
-        plt.plot(trial_delays,F_plot_array) #Plot it
-        plt.show()
-
-    else:
-        for delay in trial_delays:
-            #Find the white light intensity of a given trial delay
-            F = find_white_fringe(gamma,delay,wavelengths)
-            #Is the intensity bigger than any trial delay that's come before?
-            if F > F_max:
-                F_max = F
-                delay_max = delay
-
-    return delay_max
-
-
 def find_delay_AC(gamma_r,trial_delays,wavelengths,length,lam_0,plot=False):
     """
-    Given a complex coherence and a list of trial delays, find an estimate
-    of the group delay
+    Given the real part of the coherence and a list of trial delays, find an estimate
+    of the group delay through chi^2 minimization
 
     Inputs:
         gamma = Complex coherence

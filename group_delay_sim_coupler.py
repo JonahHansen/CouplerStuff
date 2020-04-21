@@ -8,7 +8,7 @@ Simluates the end output of the interferometer (using the tricoupler matrix)
 with an incorrect delay, then tries to calculate the group delay from phasors.
 """
 
-#Effective index difference from RSOFT
+#Effective index difference from RSoft
 del_n = 1.50551 - 1.50494
 #Average refractive index of waveguide
 n_0 = 1.54
@@ -43,6 +43,8 @@ gamma = (3*fluxes[0] + np.sqrt(3)*1j*(fluxes[2]-fluxes[1]))/np.sum(fluxes,axis=0
 trial_delays = np.linspace(-5e-5,5e-5,10000)
 
 #Estimate the delay through phasor rotation (and plot it)
-fix_delay = ff.find_delay(gamma,trial_delays,wavelengths,plot=True)
+delay_envelope = ff.group_delay_envelope(gamma,trial_delays,wavelengths,plot=True)
+fix_delay = ff.find_delay(delay_envelope,trial_delays)
+
 print(f"Delay estimate = {fix_delay}")
 print(f"Off by: {np.abs(fix_delay)-np.abs(bad_delay)}")
