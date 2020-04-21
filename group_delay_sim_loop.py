@@ -1,7 +1,7 @@
 import numpy as np
 import matplotlib.pyplot as plt
 import fringe_functions as ff
-import time
+import datetime
 import kmf
 
 """
@@ -21,7 +21,7 @@ end_wavelength = 750e-9
 wavelengths = np.arange(start_wavelength,end_wavelength,bandpass)[:-1] + 0.5*bandpass
 
 #Throughput (tricoupler with instrumental throughput eta)
-eta = 0.3
+eta = 0.5
 throughput = 1/3*eta*1/len(wavelengths)
 
 #R band constants:
@@ -60,8 +60,8 @@ vis = 0.5
 true_params = (F_0,vis,coh_phase)
 
 #List of trial delays to scan
-Num_delays = 400 #Number of delays
-scale = 0.004 #How fine? Smaller = Finer
+Num_delays = 100 #Number of delays
+scale = 0.01 #How fine? Smaller = Finer
 wavenumber_bandpass = 1/start_wavelength - 1/end_wavelength
 trial_delays = scale*np.arange(-Num_delays/2+1,Num_delays/2)/wavenumber_bandpass
 
@@ -120,8 +120,6 @@ fix_delay = 0
 #Simulate a loop of fringe tracking and science (and time it)
 for j in range(n_iter):
 
-    time_start = time.time()
-
     #Calculate the phase error difference between the two apertures
     bad_phase = (atm_phases[j]-atm_phases[j+num_r0s])
     #Convert to an OPD, based on the middle wavelength???
@@ -137,6 +135,8 @@ for j in range(n_iter):
     #Calculate the output complex coherence
     gamma = ff.cal_coherence(eff_delay,wavelengths,bandpass,true_params)
 
+    time_start = datetime.datetime.now()
+
     #Estimate the current delay envelope
     delay_envelope = ff.group_delay_envelope(gamma,trial_delays,wavelengths)
 
@@ -145,6 +145,9 @@ for j in range(n_iter):
 
     #Find estimate the residual delay for adjustment
     adj_delay = ff.find_delay(ave_delay_envelope,trial_delays)
+
+    time_end = datetime.datetime.now()
+
     print(f"eff delay estimate = {adj_delay}")
 
     #How close was the estimate?
@@ -163,8 +166,7 @@ for j in range(n_iter):
     vis_array.append(np.mean(np.abs(gamma)**2)-bias_vis)
 
     #Print time it takes to perform fringe tracking and science
-    time_end = time.time()
-    print(f"Number {j}, Time elapsed = {1000*(time_end-time_start)} ms")
+    print(f"Number {j}, Time elapsed = {(time_end-time_start).microseconds/1000} ms")
 
 #Print the average of the estimated visibilities
 print(np.median(vis_array))
