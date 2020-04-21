@@ -122,14 +122,12 @@ def phaseshift_glass(lam,length,lam_0):
 ####################### Tricoupler Functions ##################################
 
 
-def cal_coherence(delay_bad,delay_fix,wavelengths,bandpass,true_params):
+def cal_coherence(delay,wavelengths,bandpass,true_params):
     """
     Calculates the complex coherence from a simulated tricoupler
 
     Inputs:
-        delay_bad = delay caused by the atmosphere (want to remove)
-        delay_fix = delay caused by the delay line
-                    (effective delay is delay_bad - delay_fix)
+        delay = total delay
         wavelengths = wavelength channels to use
         bandpass = wavelength channel width
         true_params = "fake" true parameters of the source as a tuple of:
@@ -141,13 +139,11 @@ def cal_coherence(delay_bad,delay_fix,wavelengths,bandpass,true_params):
 
     F_0,vis,coh_phase = true_params
 
-    eff_delay = delay_bad - delay_fix #Calculate effective delay
-
     fluxes = np.zeros((3,len(wavelengths)))
     i = 0
     for output_offset in 2*np.pi/3*np.array([0,1,2]):
         #Calculate intensity output of each fiber (each output has an offset)
-        flux = fringe_flux(eff_delay,wavelengths,bandpass,F_0,vis,
+        flux = fringe_flux(delay,wavelengths,bandpass,F_0,vis,
                            coh_phase,offset=output_offset)
         #Make it noisy based on shot noise and read noise
         shot_noise = np.random.poisson(flux)
@@ -231,9 +227,7 @@ def cal_AC_output(delay_bad,delay_fix,wavelengths,bandpass,length,lam_0,true_par
     Calculates the flux output from a simulated AC coupler
 
     Inputs:
-        delay_bad = delay caused by the atmosphere (want to remove)
-        delay_fix = delay caused by the delay line
-                    (effective delay is delay_bad - delay_fix)
+        delay = total delay
         wavelengths = wavelength channels to use
         bandpass = wavelength channel width
         length = Length of extra glass for dispersion
@@ -247,13 +241,11 @@ def cal_AC_output(delay_bad,delay_fix,wavelengths,bandpass,length,lam_0,true_par
 
     F_0,vis,coh_phase = true_params
 
-    eff_delay = delay_bad - delay_fix #Calculate effective delay
-
     fluxes = np.zeros((2,len(wavelengths)))
     i = 0
     for output_offset in np.pi*np.array([0,1]):
         #Calculate intensity output of each fiber (each output has an offset)
-        flux = fringe_flux(eff_delay,wavelengths,bandpass,F_0,vis,
+        flux = fringe_flux(_delay,wavelengths,bandpass,F_0,vis,
                            coh_phase,phaseshift_glass(wavelengths,length,lam_0),offset=output_offset)
         #Make it noisy based on shot noise and read noise
         shot_noise = np.random.poisson(flux)

@@ -30,7 +30,7 @@ v = 20 #m/s
 t0 = 0.31*(r0/v) #s
 
 #Telescope details:
-D = 0.1#m
+D = 0.1 #m
 coh_int_time = 1.6*t0
 
 #Fake Data:
@@ -52,9 +52,8 @@ length = 5e-2 #Length of extended bit of glass
 #Delay to try and recover (pretend it's caused by the atmosphere)
 bad_delay = 1.62e-5
 
-
 #Find real part of the complex coherence
-fluxes = ff.cal_AC_output(bad_delay,0,wavelengths,bandpass,length,lam_0,true_params)
+fluxes = ff.cal_AC_output(bad_delay,wavelengths,bandpass,length,lam_0,true_params)
 gamma_r = (fluxes[1] - fluxes[0])/(fluxes[0]+fluxes[1])
 
 #List of trial delays to scan

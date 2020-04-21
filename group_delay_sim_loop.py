@@ -2,6 +2,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 import fringe_functions as ff
 import time
+import kmf
 
 """
 Simluates the end output of the interferometer (using intensity equation)
@@ -20,7 +21,7 @@ end_wavelength = 750e-9
 wavelengths = np.arange(start_wavelength,end_wavelength,bandpass)[:-1] + 0.5*bandpass
 
 #Throughput (tricoupler with instrumental throughput eta)
-eta = 0.5
+eta = 0.3
 throughput = 1/3*eta*1/len(wavelengths)
 
 #R band constants:
@@ -31,21 +32,23 @@ h = 6.62607015e-34 #Js
 
 #Turbulence Data
 seeing = 1 #arcsec
-r0 = 0.98*start_wavelength*180*3600/np.pi/seeing #m
-v = 20 #m/s
-t0 = 0.31*(r0/v) #s
+r0 = 0.98*start_wavelength*180*3600/np.pi/seeing # Fried parameter (m)
+v = 20 # Wind speed (m/s)
+t0 = 0.31*(r0/v) #Coherent time (s)
 
 #Telescope details:
-D = 0.1#m
+B = 20 #Baseline (m)
+D = 0.1 #Aperture (m)
+
+#Integration times
 coh_int_time = 1.6*t0
 incoh_int_time = 30*t0
 
-num_group_delay_frames = int(incoh_int_time/coh_int_time)
 #Scale factor for group envelope averaging:
 a = 1 - np.exp(-coh_int_time/incoh_int_time)
 
 #Fake Data:
-Rmag_star = 5
+Rmag_star = 6
 f_star = R_flux*10**(-0.4*Rmag_star)*R_bandpass #W/m^2
 E_star = np.pi*(D/2)**2*coh_int_time*f_star #J
 F_0 = E_star/(h*nu)*throughput #(photons per pixel per integration)
@@ -57,29 +60,41 @@ vis = 0.5
 true_params = (F_0,vis,coh_phase)
 
 #List of trial delays to scan
-Num_delays = 200
-scale = 0.1
+Num_delays = 400 #Number of delays
+scale = 0.004 #How fine? Smaller = Finer
 wavenumber_bandpass = 1/start_wavelength - 1/end_wavelength
 trial_delays = scale*np.arange(-Num_delays/2+1,Num_delays/2)/wavenumber_bandpass
 
-fix_delay=0
-vis_array=[]
-
-#Maximum and rms error expected in delay space
-error_rms = 2e-5
-
 #Number of integrations
-n_iter = 100
+n_iter = 1000
+
+#Number of wavefront "cells" between the two apertures
+num_r0s = int(np.ceil(B/r0))
+
+#Calculate nearest power of two
+def nearest_two_power(x):
+    return 1<<(x-1).bit_length()
+
+#Calculate the number of cells required for the turbulence sim
+num_cells = nearest_two_power(n_iter+num_r0s+1)
+
+####################### Find Visibility Bias ##################################
+
+#Atmospheric wavefront (will move across the interferometer)
+atm_phases = kmf.km1d(nearest_two_power(n_iter+num_r0s+1))
+
+vis_array=[]
 
 #Calc Bias in visibility
 for j in range(n_iter):
 
-    #Generate a random delay based on the error rms
-    #NEED TO CHANGE!!!
-    bad_delay = 2*error_rms*np.random.random_sample() - error_rms
+    #Calculate the phase error difference between the two apertures
+    bad_phase = (atm_phases[j]-atm_phases[j+num_r0s])
+    #Convert to an OPD, based on the middle wavelength???
+    bad_delay = bad_phase*(0.5*(end_wavelength-start_wavelength))/(2*np.pi)
 
     #Calculate the output complex coherence
-    gamma = ff.cal_coherence(bad_delay,0,wavelengths,bandpass,(F_0,0,np.pi/3))
+    gamma = ff.cal_coherence(bad_delay,wavelengths,bandpass,(F_0,0,np.pi/3))
 
     #Estimate the visibility based on the corrected coherence and append to list
     vis_array.append(np.mean(np.abs(gamma)**2))
@@ -87,22 +102,40 @@ for j in range(n_iter):
 #Adopt the median as the true bias
 bias_vis = np.median(vis_array)
 
-#Setup
-vis_array=[]
-ave_delay_envelope = np.zeros(len(trial_delays))
-frame_num = 0
+###################### Science and Delay Loop #################################
 
-#Simulate a loop of fringe tracking and science
+#Atmospheric wavefront (will move across the interferometer)
+atm_phases = kmf.km1d(nearest_two_power(n_iter+num_r0s+50))
+
+#Setup arrays
+vis_array=[]
+bad_delay_array=[] #Array of atmospheric errors
+fix_delay_array=[] #Position of the delay line
+error_delay_array=[] #Residuals
+ave_delay_envelope = np.zeros(len(trial_delays))
+
+#Start delay line at 0
+fix_delay = 0
+
+#Simulate a loop of fringe tracking and science (and time it)
 for j in range(n_iter):
 
     time_start = time.time()
 
-    #Generate a random delay based on the error rms
-    #NEED TO CHANGE!!!
-    bad_delay = 2*error_rms*np.random.random_sample() - error_rms
+    #Calculate the phase error difference between the two apertures
+    bad_phase = (atm_phases[j]-atm_phases[j+num_r0s])
+    #Convert to an OPD, based on the middle wavelength???
+    bad_delay = bad_phase*(0.5*(end_wavelength-start_wavelength))/(2*np.pi)
+
+    #Add the incorrect delay to the array
+    bad_delay_array.append(bad_delay*1e6)
+
+    #Calculate the effective (residual) delay
+    eff_delay = bad_delay - fix_delay
+    print(f"eff delay = {eff_delay}")
 
     #Calculate the output complex coherence
-    gamma = ff.cal_coherence(bad_delay,0,wavelengths,bandpass,true_params)
+    gamma = ff.cal_coherence(eff_delay,wavelengths,bandpass,true_params)
 
     #Estimate the current delay envelope
     delay_envelope = ff.group_delay_envelope(gamma,trial_delays,wavelengths)
@@ -110,17 +143,24 @@ for j in range(n_iter):
     #Add to running average
     ave_delay_envelope = a*delay_envelope + (1-a)*ave_delay_envelope
 
-    #If incoherent integration time is up, find group delay and adjust
-    if frame_num < num_group_delay_frames:
-        fix_delay = ff.find_delay(ave_delay_envelope,trial_delays)
+    #Find estimate the residual delay for adjustment
+    adj_delay = ff.find_delay(ave_delay_envelope,trial_delays)
+    print(f"eff delay estimate = {adj_delay}")
 
-        #Adjust the delay and calculate the new coherence????
-        new_gamma = gamma/np.sinc(fix_delay*bandpass/wavelengths**2)*np.exp(-1j*2*np.pi*fix_delay/wavelengths)
+    #How close was the estimate?
+    error_delay_array.append((np.abs(eff_delay)-np.abs(adj_delay))*1e6)
+    print(f"Off by: {np.abs(eff_delay)-np.abs(adj_delay)}")
 
-        #Estimate the visibility based on the corrected coherence and append to list
-        vis_array.append(np.mean(np.abs(new_gamma)**2)-bias_vis)
+    #Adjust the delay line
+    fix_delay += adj_delay
+    #Add to array
+    fix_delay_array.append(fix_delay*1e6)
 
-    frame_num += 1
+    #Adjust the delay and calculate the new coherence????
+    #new_gamma = gamma/np.sinc(adj_delay*bandpass/wavelengths**2)*np.exp(1j*2*np.pi*fix_delay/wavelengths)
+
+    #Estimate the visibility based on the corrected coherence and append to list
+    vis_array.append(np.mean(np.abs(gamma)**2)-bias_vis)
 
     #Print time it takes to perform fringe tracking and science
     time_end = time.time()
@@ -130,7 +170,16 @@ for j in range(n_iter):
 print(np.median(vis_array))
 
 #Plot the estimated visibilities as a function of time
-plt.plot(0.01*np.arange(len(vis_array)),vis_array,marker=".",ls="")
-plt.xlabel("Time (s)")
+plt.figure(1)
+plt.plot(vis_array,marker=".",ls="")
+plt.xlabel("Time")
 plt.ylabel("V^2")
-#plt.show()
+
+plt.figure(2)
+plt.plot(bad_delay_array,label="Bad delay")
+plt.plot(fix_delay_array,label="Delay estimate")
+plt.plot(error_delay_array,label="Residuals")
+plt.legend()
+plt.xlabel("Time")
+plt.ylabel("OPD (um)")
+plt.show()
