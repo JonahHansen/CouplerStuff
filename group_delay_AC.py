@@ -34,7 +34,7 @@ D = 0.1 #m
 coh_int_time = 1.6*t0
 
 #Fake Data:
-Rmag_star = 5
+Rmag_star = 0
 f_star = R_flux*10**(-0.4*Rmag_star)*R_bandpass #W/m^2
 E_star = np.pi*(D/2)**2*coh_int_time*f_star #J
 F_0 = E_star/(h*nu)*throughput #(photons per pixel per integration)
@@ -47,20 +47,21 @@ true_params = (F_0,vis,coh_phase)
 
 #Dispersion parameters
 lam_0 = 675e-9
-length = 5e-2 #Length of extended bit of glass
+length = 0.1 #Length of extended bit of glass
 
 #Delay to try and recover (pretend it's caused by the atmosphere)
-bad_delay = 1.62e-5
+bad_delay = 1.626e-6
+plt.vlines(bad_delay,0,14)
 
 #Find real part of the complex coherence
 fluxes = ff.cal_AC_output(bad_delay,wavelengths,bandpass,length,lam_0,true_params)
-gamma_r = (fluxes[1] - fluxes[0])/(fluxes[0]+fluxes[1])
+gamma_r = (fluxes[0] - fluxes[1])/(fluxes[0]+fluxes[1])
 
 #List of trial delays to scan
-trial_delays = np.linspace(-5e-5,5e-5,50000)
+trial_delays = np.linspace(-5e-6,5e-6,50000)
 
 #Estimate the delay through phasor rotation (and plot it)
-fix_delay = ff.find_delay_AC(gamma_r,trial_delays,wavelengths,length,lam_0,plot=True)
+fix_delay = ff.find_delay_AC(gamma_r,trial_delays,wavelengths,bandpass,length,lam_0,plot=True)
 print(f"Delay estimate = {fix_delay}")
 print(f"Off by: {np.abs(fix_delay)-np.abs(bad_delay)}")
 

@@ -222,7 +222,7 @@ def find_delay(delay_envelope,trial_delays):
 ########################## AC Functions #######################################
 
 
-def cal_AC_output(delay_bad,delay_fix,wavelengths,bandpass,length,lam_0,true_params):
+def cal_AC_output(delay,wavelengths,bandpass,length,lam_0,true_params):
     """
     Calculates the flux output from a simulated AC coupler
 
@@ -245,7 +245,7 @@ def cal_AC_output(delay_bad,delay_fix,wavelengths,bandpass,length,lam_0,true_par
     i = 0
     for output_offset in np.pi*np.array([0,1]):
         #Calculate intensity output of each fiber (each output has an offset)
-        flux = fringe_flux(_delay,wavelengths,bandpass,F_0,vis,
+        flux = fringe_flux(delay,wavelengths,bandpass,F_0,vis,
                            coh_phase,phaseshift_glass(wavelengths,length,lam_0),offset=output_offset)
         #Make it noisy based on shot noise and read noise
         shot_noise = np.random.poisson(flux)
@@ -255,7 +255,7 @@ def cal_AC_output(delay_bad,delay_fix,wavelengths,bandpass,length,lam_0,true_par
     return fluxes
 
 
-def calc_chi_2_AC(gamma_r,delay,wavelengths,length,lam_0):
+def calc_chi_2_AC(gamma_r,delay,wavelengths,bandpass,length,lam_0):
     """
     Given the real part of the coherence and a trial delay, calculate the chi^2 value
 
@@ -263,6 +263,7 @@ def calc_chi_2_AC(gamma_r,delay,wavelengths,length,lam_0):
         gamma_r = Real part of the Complex coherence
         delay = trial delay
         wavelengths = list of wavelength channels
+        bandpass = bandpass of the wavelength channels
         length = length of the glass extension
         lam_0 = central wavelength for dispersion
     Outputs:
@@ -270,12 +271,12 @@ def calc_chi_2_AC(gamma_r,delay,wavelengths,length,lam_0):
     """
 
     #Calculate each element of the chi^2
-    chi_lam = (np.cos(2*np.pi*delay/wavelengths - phaseshift_glass(wavelengths,length,lam_0)) - gamma_r)**2
+    chi_lam = (np.sinc(delay*bandpass/wavelengths**2)*np.cos(2*np.pi*delay/wavelengths - phaseshift_glass(wavelengths,length,lam_0)) - gamma_r)**2
 
     return np.sum(chi_lam) #Sum them up
 
 
-def find_delay_AC(gamma_r,trial_delays,wavelengths,length,lam_0,plot=False):
+def find_delay_AC(gamma_r,trial_delays,wavelengths,bandpass,length,lam_0,plot=False):
     """
     Given the real part of the coherence and a list of trial delays, find an estimate
     of the group delay through chi^2 minimization
@@ -298,19 +299,21 @@ def find_delay_AC(gamma_r,trial_delays,wavelengths,length,lam_0,plot=False):
         chi_2_plot_array = []
         for delay in trial_delays:
             #Find the white light intensity of a given trial delay
-            chi_2 = calc_chi_2_AC(gamma_r,delay,wavelengths,length,lam_0)
+            chi_2 = calc_chi_2_AC(gamma_r,delay,wavelengths,bandpass,length,lam_0)
             chi_2_plot_array.append(chi_2)
             #Is the intensity bigger than any trial delay that's come before?
             if chi_2 < chi_2_min:
                 chi_2_min = chi_2
                 delay_min = delay
         plt.plot(trial_delays,chi_2_plot_array) #Plot it
+        plt.xlabel("Delay")
+        plt.ylabel("Chi^2")
         plt.show()
 
     else:
         for delay in trial_delays:
             #Find the white light intensity of a given trial delay
-            chi_2 = calc_chi_2_AC(gamma_r,delay,wavelengths,length,lam_0)
+            chi_2 = calc_chi_2_AC(gamma_r,delay,wavelengths,bandpass,length,lam_0)
             #Is the intensity bigger than any trial delay that's come before?
             if chi_2 < chi_2_min:
                 chi_2_min = chi_2

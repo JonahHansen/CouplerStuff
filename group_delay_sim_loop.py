@@ -21,13 +21,13 @@ end_wavelength = 750e-9
 wavelengths = np.arange(start_wavelength,end_wavelength,bandpass)[:-1] + 0.5*bandpass
 
 #Throughput (tricoupler with instrumental throughput eta)
-eta = 0.5
+eta = 0.3
 throughput = 1/3*eta*1/len(wavelengths)
 
 #R band constants:
 R_flux = 2.19e-11 #W/m^2/nm
 R_bandpass = 133 #nm
-nu = 4.28e14
+nu = 4.56e14
 h = 6.62607015e-34 #Js
 
 #Turbulence Data
@@ -48,14 +48,14 @@ incoh_int_time = 30*t0
 a = 1 - np.exp(-coh_int_time/incoh_int_time)
 
 #Fake Data:
-Rmag_star = 6
+Rmag_star = 1
 f_star = R_flux*10**(-0.4*Rmag_star)*R_bandpass #W/m^2
 E_star = np.pi*(D/2)**2*coh_int_time*f_star #J
 F_0 = E_star/(h*nu)*throughput #(photons per pixel per integration)
 
 print(f"Number of photons per pixel: {F_0}")
 
-coh_phase = np.pi/6
+coh_phase = 0.2
 vis = 0.5
 true_params = (F_0,vis,coh_phase)
 
@@ -81,7 +81,7 @@ num_cells = nearest_two_power(n_iter+num_r0s+1)
 ####################### Find Visibility Bias ##################################
 
 #Atmospheric wavefront (will move across the interferometer)
-atm_phases = kmf.km1d(nearest_two_power(n_iter+num_r0s+1))
+atm_phases = kmf.km1d(num_cells)
 
 vis_array=[]
 
@@ -105,7 +105,7 @@ bias_vis = np.median(vis_array)
 ###################### Science and Delay Loop #################################
 
 #Atmospheric wavefront (will move across the interferometer)
-atm_phases = kmf.km1d(nearest_two_power(n_iter+num_r0s+50))
+atm_phases = kmf.km1d(nearest_two_power(num_cells))
 
 #Setup arrays
 vis_array=[]
@@ -173,9 +173,13 @@ print(np.median(vis_array))
 
 #Plot the estimated visibilities as a function of time
 plt.figure(1)
-plt.plot(vis_array,marker=".",ls="")
+plt.plot(vis_array,marker=".",ls="",label="Data points",zorder=0)
+plt.hlines(0.25,0,n_iter,label="True value",zorder=5)
+plt.hlines(np.mean(vis_array),0,n_iter,color="r",label="Mean value",zorder=9)
+plt.hlines(np.median(vis_array),0,n_iter,color="c",label="Median value",zorder=10)
 plt.xlabel("Time")
 plt.ylabel("V^2")
+plt.legend()
 
 plt.figure(2)
 plt.plot(bad_delay_array,label="Bad delay")
