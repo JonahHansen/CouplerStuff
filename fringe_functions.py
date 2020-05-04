@@ -122,7 +122,7 @@ def phaseshift_glass(lam,length,lam_0):
 ####################### Tricoupler Functions ##################################
 
 
-def cal_coherence(delay,wavelengths,bandpass,true_params):
+def cal_tri_output(delay,wavelengths,bandpass,true_params):
     """
     Calculates the complex coherence from a simulated tricoupler
 
@@ -150,10 +150,12 @@ def cal_coherence(delay,wavelengths,bandpass,true_params):
         fluxes[i] = np.round(shot_noise + np.random.normal(scale=1.6))
         i += 1
 
-    #Combine the outputs into the coherence
-    gamma = (3*fluxes[0] + np.sqrt(3)*1j*(fluxes[2]-fluxes[1]))/np.sum(fluxes,axis=0)-1
+    return fluxes
 
-    return gamma
+    #Combine the outputs into the coherence
+    #gamma = (3*fluxes[0] + np.sqrt(3)*1j*(fluxes[2]-fluxes[1]))/np.sum(fluxes,axis=0)-1
+
+
 
 
 def find_white_fringe(gamma,delay,wavelengths):

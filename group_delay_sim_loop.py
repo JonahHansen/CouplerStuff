@@ -15,13 +15,13 @@ tracking and science.
 
 """
 #List of wavelength channels, with spacing 20nm.
-bandpass = 15e-9
+bandpass = 25e-9
 start_wavelength = 600e-9
 end_wavelength = 750e-9
 wavelengths = np.arange(start_wavelength,end_wavelength,bandpass)[:-1] + 0.5*bandpass
 
 #Throughput (tricoupler with instrumental throughput eta)
-eta = 0.3
+eta = 0.2
 throughput = 1/3*eta*1/len(wavelengths)
 
 #R band constants:
@@ -48,7 +48,7 @@ incoh_int_time = 30*t0
 a = 1 - np.exp(-coh_int_time/incoh_int_time)
 
 #Fake Data:
-Rmag_star = 1
+Rmag_star = 7
 f_star = R_flux*10**(-0.4*Rmag_star)*R_bandpass #W/m^2
 E_star = np.pi*(D/2)**2*coh_int_time*f_star #J
 F_0 = E_star/(h*nu)*throughput #(photons per pixel per integration)
@@ -60,8 +60,8 @@ vis = 0.5
 true_params = (F_0,vis,coh_phase)
 
 #List of trial delays to scan
-Num_delays = 100 #Number of delays
-scale = 0.01 #How fine? Smaller = Finer
+Num_delays = 1000 #Number of delays
+scale = 0.005 #How fine? Smaller = Finer
 wavenumber_bandpass = 1/start_wavelength - 1/end_wavelength
 trial_delays = scale*np.arange(-Num_delays/2+1,Num_delays/2)/wavenumber_bandpass
 
@@ -83,7 +83,8 @@ num_cells = nearest_two_power(n_iter+num_r0s+1)
 #Atmospheric wavefront (will move across the interferometer)
 atm_phases = kmf.km1d(num_cells)
 
-vis_array=[]
+vis_array_num=[]
+vis_array_den=[]
 
 #Calc Bias in visibility
 for j in range(n_iter):
@@ -94,13 +95,16 @@ for j in range(n_iter):
     bad_delay = bad_phase*(0.5*(end_wavelength-start_wavelength))/(2*np.pi)
 
     #Calculate the output complex coherence
-    gamma = ff.cal_coherence(bad_delay,wavelengths,bandpass,(F_0,0,np.pi/3))
+    fluxes = ff.cal_tri_output(bad_delay,wavelengths,bandpass,(F_0,0,np.pi/3))
+    gamma_bias_num = 2*fluxes[0] - (fluxes[2]+fluxes[1]) + np.sqrt(3)*1j*(fluxes[2]-fluxes[1])
+    gamma_bias_den = np.sum(fluxes,axis=0)
 
     #Estimate the visibility based on the corrected coherence and append to list
-    vis_array.append(np.mean(np.abs(gamma)**2))
+    vis_array_num.append(np.mean(np.abs(gamma_bias_num)**2))
+    vis_array_den.append(np.mean(np.abs(gamma_bias_den)**2))
 
 #Adopt the median as the true bias
-bias_vis = np.median(vis_array)
+bias_vis = np.median(vis_array_num)/np.mean(vis_array_den)
 
 ###################### Science and Delay Loop #################################
 
@@ -108,7 +112,8 @@ bias_vis = np.median(vis_array)
 atm_phases = kmf.km1d(nearest_two_power(num_cells))
 
 #Setup arrays
-vis_array=[]
+vis_array_num=[]
+vis_array_den=[]
 bad_delay_array=[] #Array of atmospheric errors
 fix_delay_array=[] #Position of the delay line
 error_delay_array=[] #Residuals
@@ -133,12 +138,16 @@ for j in range(n_iter):
     print(f"eff delay = {eff_delay}")
 
     #Calculate the output complex coherence
-    gamma = ff.cal_coherence(eff_delay,wavelengths,bandpass,true_params)
+    fluxes = ff.cal_tri_output(eff_delay,wavelengths,bandpass,true_params)
+    gamma_num = 2*fluxes[0] - (fluxes[2]+fluxes[1]) + np.sqrt(3)*1j*(fluxes[2]-fluxes[1])
+    gamma_den = np.sum(fluxes,axis=0)
+
+    #import pdb; pdb.set_trace()
 
     time_start = datetime.datetime.now()
 
     #Estimate the current delay envelope
-    delay_envelope = ff.group_delay_envelope(gamma,trial_delays,wavelengths)
+    delay_envelope = ff.group_delay_envelope(gamma_num,trial_delays,wavelengths)
 
     #Add to running average
     ave_delay_envelope = a*delay_envelope + (1-a)*ave_delay_envelope
@@ -151,8 +160,8 @@ for j in range(n_iter):
     print(f"eff delay estimate = {adj_delay}")
 
     #How close was the estimate?
-    error_delay_array.append((np.abs(eff_delay)-np.abs(adj_delay))*1e6)
-    print(f"Off by: {np.abs(eff_delay)-np.abs(adj_delay)}")
+    error_delay_array.append((eff_delay-adj_delay)*1e6)
+    print(f"Off by: {eff_delay-adj_delay}")
 
     #Adjust the delay line
     fix_delay += adj_delay
@@ -163,20 +172,21 @@ for j in range(n_iter):
     #new_gamma = gamma/np.sinc(adj_delay*bandpass/wavelengths**2)*np.exp(1j*2*np.pi*fix_delay/wavelengths)
 
     #Estimate the visibility based on the corrected coherence and append to list
-    vis_array.append(np.mean(np.abs(gamma)**2)-bias_vis)
+    vis_array_num.append(np.mean(np.abs(gamma_num)**2))
+    vis_array_den.append(np.mean(np.abs(gamma_den)**2))
 
     #Print time it takes to perform fringe tracking and science
     print(f"Number {j}, Time elapsed = {(time_end-time_start).microseconds/1000} ms")
 
 #Print the average of the estimated visibilities
-print(np.median(vis_array))
+print(np.median(vis_array_num)/np.mean(vis_array_den))
 
 #Plot the estimated visibilities as a function of time
 plt.figure(1)
-plt.plot(vis_array,marker=".",ls="",label="Data points",zorder=0)
+plt.plot(vis_array_num/np.mean(vis_array_den),marker=".",ls="",label="Data points",zorder=0)
 plt.hlines(0.25,0,n_iter,label="True value",zorder=5)
-plt.hlines(np.mean(vis_array),0,n_iter,color="r",label="Mean value",zorder=9)
-plt.hlines(np.median(vis_array),0,n_iter,color="c",label="Median value",zorder=10)
+plt.hlines(np.mean(vis_array_num)/np.mean(vis_array_den),0,n_iter,color="r",label="Mean value",zorder=9)
+plt.hlines(np.median(vis_array_num)/np.mean(vis_array_den),0,n_iter,color="c",label="Median value",zorder=10)
 plt.xlabel("Time")
 plt.ylabel("V^2")
 plt.legend()

@@ -50,13 +50,15 @@ true_params = (F_0,vis,coh_phase)
 bad_delay = -1.56474575e-5
 
 #Calculate Vis bias
-gamma = ff.cal_coherence(bad_delay,wavelengths,bandpass,(F_0,0,np.pi/5))
+fluxes = ff.cal_tri_output(bad_delay,wavelengths,bandpass,(F_0,0,np.pi/5))
+gamma_bias = (3*fluxes[0] + np.sqrt(3)*1j*(fluxes[2]-fluxes[1]))/np.sum(fluxes,axis=0)-1
 
 #Estimate the visibility based on the corrected coherence and append to list
-vis_bias = np.mean(np.abs(gamma)**2)
+vis_bias = np.mean(np.abs(gamma_bias)**2)
 
 #Find complex coherence
-gamma = ff.cal_coherence(bad_delay,wavelengths,bandpass,true_params)
+fluxes = ff.cal_tri_output(bad_delay,wavelengths,bandpass,true_params)
+gamma = (3*fluxes[0] + np.sqrt(3)*1j*(fluxes[2]-fluxes[1]))/np.sum(fluxes,axis=0)-1
 
 #List of trial delays to scan
 Num_delays = 200
