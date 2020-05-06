@@ -38,7 +38,7 @@ t0 = 0.31*(r0/v) #Coherent time (s)
 
 #Telescope details:
 B = 20 #Baseline (m)
-D = 0.1 #Aperture (m)
+D = 0.09 #Aperture (m)
 
 #Integration times
 coh_int_time = 1.6*t0
@@ -48,7 +48,7 @@ incoh_int_time = 30*t0
 a = 1 - np.exp(-coh_int_time/incoh_int_time)
 
 #Fake Data:
-Rmag_star = 7
+Rmag_star = 6
 f_star = R_flux*10**(-0.4*Rmag_star)*R_bandpass #W/m^2
 E_star = np.pi*(D/2)**2*coh_int_time*f_star #J
 F_0 = E_star/(h*nu)*throughput #(photons per pixel per integration)
@@ -60,7 +60,7 @@ vis = 0.5
 true_params = (F_0,vis,coh_phase)
 
 #List of trial delays to scan
-Num_delays = 1000 #Number of delays
+Num_delays = 5000 #Number of delays
 scale = 0.005 #How fine? Smaller = Finer
 wavenumber_bandpass = 1/start_wavelength - 1/end_wavelength
 trial_delays = scale*np.arange(-Num_delays/2+1,Num_delays/2)/wavenumber_bandpass
@@ -104,7 +104,7 @@ for j in range(n_iter):
     vis_array_den.append(np.mean(np.abs(gamma_bias_den)**2))
 
 #Adopt the median as the true bias
-bias_vis = np.median(vis_array_num)/np.mean(vis_array_den)
+vis_bias = np.mean(vis_array_num)/np.mean(vis_array_den)
 
 ###################### Science and Delay Loop #################################
 
@@ -179,14 +179,14 @@ for j in range(n_iter):
     print(f"Number {j}, Time elapsed = {(time_end-time_start).microseconds/1000} ms")
 
 #Print the average of the estimated visibilities
-print(np.median(vis_array_num)/np.mean(vis_array_den))
+print(np.mean(vis_array_num)/np.mean(vis_array_den)-vis_bias)
 
 #Plot the estimated visibilities as a function of time
 plt.figure(1)
-plt.plot(vis_array_num/np.mean(vis_array_den),marker=".",ls="",label="Data points",zorder=0)
+plt.plot(vis_array_num/np.mean(vis_array_den)-vis_bias,marker=".",ls="",label="Data points",zorder=0)
 plt.hlines(0.25,0,n_iter,label="True value",zorder=5)
-plt.hlines(np.mean(vis_array_num)/np.mean(vis_array_den),0,n_iter,color="r",label="Mean value",zorder=9)
-plt.hlines(np.median(vis_array_num)/np.mean(vis_array_den),0,n_iter,color="c",label="Median value",zorder=10)
+plt.hlines(np.mean(vis_array_num)/np.mean(vis_array_den)-vis_bias,0,n_iter,color="r",label="Mean value",zorder=9)
+#plt.hlines(np.median(vis_array_num)/np.mean(vis_array_den)-vis_bias,0,n_iter,color="c",label="Median value",zorder=10)
 plt.xlabel("Time")
 plt.ylabel("V^2")
 plt.legend()
