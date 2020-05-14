@@ -9,7 +9,6 @@ channels.
 
 #Fake Data:
 F_0 = 1.5
-coh_phase = np.pi/6
 vis = 0.5
 
 #List of wavelength channels, with spacing 20nm.
@@ -34,7 +33,7 @@ for i in range(n):
     #Plot fringe pattern
     j = n-i-1
     plt.plot(delays*1000000,ff.fringe_flux(delays,wavelengths[j],bandpass=bandpass,
-                         F_0=F_0,vis=vis,coh_phase=coh_phase,
+                         F_0=F_0,vis=vis,
                          disp_phase=glass_phase[j]),color=colors[j],alpha=0.2)
 plt.xlabel("Delay (um)")
 plt.show()

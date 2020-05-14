@@ -7,7 +7,7 @@ Simluates the end output of the interferometer (using intensity equation)
 with an incorrect delay, tries to calculate the group delay from phasors,
 applies the delay correction, and then calculates the estimated visibility^2
 """
-#List of wavelength channels, with spacing 20nm.
+#List of wavelength channels, with spacing 20nm (in m).
 bandpass = 15e-9
 start_wavelength = 600e-9
 end_wavelength = 750e-9
@@ -16,12 +16,6 @@ wavelengths = np.arange(start_wavelength,end_wavelength,bandpass)[:-1] + 0.5*ban
 #Throughput (tricoupler with instrumental throughput eta)
 eta = 0.5
 throughput = 1/3*eta/len(wavelengths)
-
-#R band constants:
-R_flux = 2.19e-11 #W/m^2/nm
-R_bandpass = 133 #nm
-nu = 4.28e14
-h = 6.62607015e-34 #Js
 
 #Turbulence Data
 seeing = 1 #arcsec
@@ -33,53 +27,49 @@ t0 = 0.31*(r0/v) #s
 D = 0.1 #m
 coh_int_time = 1.6*t0
 
-#Fake Data:
-Rmag_star = 6
-f_star = R_flux*10**(-0.4*Rmag_star)*R_bandpass #W/m^2
-E_star = np.pi*(D/2)**2*coh_int_time*f_star #J
-F_0 = E_star/(h*nu)*throughput #(photons per pixel per integration)
-
-print(f"Number of photons per pixel: {F_0}")
-
-coh_phase = 0*np.pi/6
+#Star Flux and visibility
+Rmag_star = 5
+F_0 = ff.star_flux(Rmag_star,coh_int_time,D,throughput)
 vis = 0.2343
-true_params = (F_0,vis,coh_phase)
+plt.hlines(vis,-10,10)
 
 #Dispersion parameters
-lam_0 = 675e-9
-length = 10 #Length of extended bit of glass
+lam_0 = 675e-9 #in m
+length = 1e-3 #Length of extended bit of glass
 
 #Delay to try and recover (pretend it's caused by the atmosphere)
-bad_delay = 4.2346e-7
-plt.vlines(bad_delay,0,14)
+bad_delay = 4.2346e-7 #in m
+plt.vlines(bad_delay*1e6,0,14)
 
 #Find real part of the complex coherence
-fluxes = ff.cal_AC_output(bad_delay,wavelengths,bandpass,length,lam_0,true_params)
+fluxes = ff.cal_AC_output(bad_delay,wavelengths,bandpass,length,lam_0,F_0,vis)
 gamma_r = (fluxes[0] - fluxes[1])/(fluxes[0]+fluxes[1])
 
 #List of trial delays to scan
 trial_delays = np.linspace(-1e-6,1e-6,5000)
 trial_vis = np.linspace(0,1,1000)
 
-#Estimate the delay through phasor rotation (and plot it)
-(vis_estimate,fix_delay) = ff.fit_vis_delay_AC(gamma_r,trial_delays,trial_vis,wavelengths,bandpass,length,lam_0)
+#Estimate the delay through chi^2 fitting (and plot it)
+chi_2 = ff.AC_group_delay_envelope(gamma_r,trial_delays,trial_vis,wavelengths,bandpass,length,lam_0)
+fix_delay,vis_estimate = ff.find_AC_delay_vis(chi_2,trial_delays,trial_vis)
+
 print(f"Delay estimate = {fix_delay}")
 print(f"Off by: {np.abs(fix_delay)-np.abs(bad_delay)}")
 print(f"Visibility estimate = {vis_estimate}")
 print(f"Off by: {np.abs(vis_estimate)-np.abs(vis)}")
 
-"""
-fix_delay = ff.find_delay_AC(gamma_r,trial_delays,trial_vis,wavelengths,bandpass,length,lam_0,True)
-print(f"Delay estimate = {fix_delay}")
-print(f"Off by: {np.abs(fix_delay)-np.abs(bad_delay)}")
-"""
+plt.figure(1)
+plt.imshow(chi_2,aspect="auto",origin="lower",extent=[min(trial_delays)*1e6,max(trial_delays)*1e6,min(trial_vis),max(trial_vis)])
+plt.xlabel("Delay (microns)")
+plt.ylabel("Visibility")
+plt.show()
 
 #Plot the fringes of the AC coupler
 def print_fringes():
     delays = np.linspace(-1e-5,1e-5,1e4)
     x = []
     for d in delays:
-        x.append(ff.cal_AC_output(d,wavelengths,bandpass,length,lam_0,true_params))
+        x.append(ff.cal_AC_output(d,wavelengths,bandpass,length,lam_0,F_0,vis))
 
     xA = np.array(x)[:,0,:]
     xC = np.array(x)[:,1,:]
