@@ -35,13 +35,13 @@ D = 0.09 #Aperture (m)
 
 #Integration times
 coh_int_time = 1.6*t0 # (in s)
-incoh_int_time = 8*t0 # (in s)
+incoh_int_time = 10*t0 # (in s)
 
 #Scale factor for group envelope averaging:
 a = 1 - np.exp(-coh_int_time/incoh_int_time)
 
 #Star Flux and visibility
-Rmag_star = 6
+Rmag_star = 7
 F_0 = ff.star_flux(Rmag_star,coh_int_time,D,throughput)
 vis = 0.5
 
@@ -56,7 +56,7 @@ lam_0 = 675e-9 # (in m)
 length = 1e-3 #Length of extended bit of glass (in m)
 
 #Number of integrations
-n_iter = 3000
+n_iter = 1000
 
 #Number of wavefront "cells" between the two apertures
 num_r0s = int(np.ceil(B/r0))
@@ -112,8 +112,10 @@ ave_delay_envelope = np.zeros(len(trial_delays))
 #Start delay line at 0
 fix_delay = 0
 
+a = 0
+
 #Gain of servo loop
-gain = 0.1*a
+gain = 0.0002
 
 vis_array = []
 
@@ -151,6 +153,8 @@ for j in range(n_iter):
     vis_array.append(vis_est)
 
     trial_vis = [np.sqrt(vis_est)]
+
+    trial_vis = [1]
 
     #Estimate the current delay envelope
     delay_envelope = ff.AC_group_delay_envelope(gamma_r,trial_delays,trial_vis,wavelengths,bandpass,length,lam_0)

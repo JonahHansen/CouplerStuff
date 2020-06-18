@@ -14,8 +14,8 @@ end_wavelength = 750e-9
 wavelengths = np.arange(start_wavelength,end_wavelength,bandpass)[:-1] + 0.5*bandpass
 
 #Throughput (tricoupler with instrumental throughput eta)
-eta = 0.5
-throughput = 1/3*eta/len(wavelengths)
+eta = 0.15
+throughput = 1/2*eta/len(wavelengths)
 
 #Turbulence Data
 seeing = 1 #arcsec
@@ -28,7 +28,7 @@ D = 0.1 #m
 coh_int_time = 1.6*t0
 
 #Star Flux and visibility
-Rmag_star = 5
+Rmag_star = 7
 F_0 = ff.star_flux(Rmag_star,coh_int_time,D,throughput)
 vis = 0.2343
 plt.hlines(vis,-10,10)

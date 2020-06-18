@@ -286,7 +286,7 @@ def find_tri_delay(delay_envelope,trial_delays):
     return trial_delays[np.argmax(delay_envelope)]
 
 
-########################## AC Functions 1 #######################################
+########################## AC Functions #######################################
 
 def cal_AC_output(delay,wavelengths,bandpass,length,lam_0,F_0,vis):
     """
