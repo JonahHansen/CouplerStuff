@@ -9,18 +9,19 @@ applies the delay correction, and then calculates the estimated visibility^2
 """
 
 #Set up interferometer
-pyxis = ff.AC_interferometer(bandpass = 15e-9, #m
-                              start_wavelength = 600e-9, #m
-                              end_wavelength = 750e-9, #m
-                              eta = 0.15,
-                              seeing = 1, #arcsec
-                              v = 20, #m/s
-                              incoh_scaling = 30,
-                              num_delays = 1000,
-                              scale_delay = 0.005,
-                              disp_length = 1e-3, #m
-                              disp_lam_0 = 675e-9) #m
-
+pyxis = ff.AC_interferometer(baseline = 20, #m
+                             diameter = 0.07, #m
+                             bandpass = 15e-9, #m
+                             start_wavelength = 600e-9, #m
+                             end_wavelength = 750e-9, #m
+                             eta = 0.15,
+                             seeing = 1, #arcsec
+                             v = 20, #m/s
+                             incoh_scaling = 30,
+                             num_delays = 1000,
+                             scale_delay = 0.005,
+                             disp_length = 1e-3, #m
+                             disp_lam_0 = 675e-9) #m
 
 #Plot intensity against wavelength fro two different delays
 def plot_intensity(vis,delay1,delay2):

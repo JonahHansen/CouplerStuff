@@ -204,12 +204,15 @@ class interferometer:
     for doing fringe tracking
 
     """
-    def __init__(self, bandpass, start_wavelength, end_wavelength, n_outputs,
-                        eta, seeing, v, incoh_scaling, num_delays, scale_delay):
+    def __init__(self, baseline, diameter, bandpass, start_wavelength,
+                       end_wavelength, n_outputs, eta, seeing, v, incoh_scaling,
+                       num_delays, scale_delay):
         """
         Initialisation of class
 
         Inputs:
+            baseline = baseline of interferometer (m)
+            diameter = diameter of interferometer aperture (m)
             bandpass = bandpass of each spectral channel (m)
             start_wavelength = smallest wavelength of spectrum (m)
             end_wavelength = longest wavelength of spectrum (m)
@@ -235,8 +238,8 @@ class interferometer:
         self.t0 = 0.31*(self.r0/v) #Coherent time (s)
 
         #Telescope details:
-        self.B = 20 #Baseline (m)
-        self.D = 0.07 #Aperture (m)
+        self.B = baseline #Baseline (m)
+        self.D = diameter #Aperture (m)
 
         #Integration times
         self.coh_int_time = 1.6*self.t0 #s
@@ -326,12 +329,15 @@ class tri_interferometer(interferometer):
     """
     Class for the tricoupler interferometer with 3 outputs
     """
-    def __init__(self, bandpass, start_wavelength, end_wavelength,
-                        eta, seeing, v, incoh_scaling, num_delays, scale_delay):
+    def __init__(self, baseline, diameter, bandpass, start_wavelength,
+                       end_wavelength, eta, seeing, v, incoh_scaling,
+                       num_delays, scale_delay):
         """
         Initialisation of class
 
         Inputs:
+            baseline = baseline of interferometer (m)
+            diameter = diameter of interferometer aperture (m)
             bandpass = bandpass of each spectral channel (m)
             start_wavelength = smallest wavelength of spectrum (m)
             end_wavelength = longest wavelength of spectrum (m)
@@ -344,9 +350,10 @@ class tri_interferometer(interferometer):
 
         """
 
-        interferometer.__init__(self, bandpass, start_wavelength,
-                                      end_wavelength, 3, eta, seeing, v,
-                                      incoh_scaling, num_delays, scale_delay)
+        interferometer.__init__(self, baseline, diameter, bandpass,
+                                      start_wavelength, end_wavelength, 3,
+                                      eta, seeing, v, incoh_scaling,
+                                      num_delays, scale_delay)
 
 
     def calc_output(self,delay,F_0,vis):
@@ -456,13 +463,15 @@ class AC_interferometer(interferometer):
     Class for the AC interferometer with only 2 outputs
     """
 
-    def __init__(self, bandpass, start_wavelength, end_wavelength,
-                       eta, seeing, v, incoh_scaling, num_delays,
-                       scale_delay, disp_length, disp_lam_0):
+    def __init__(self, baseline, diameter, bandpass, start_wavelength,
+                       end_wavelength, eta, seeing, v, incoh_scaling,
+                       num_delays, scale_delay, disp_length, disp_lam_0):
         """
         Initialisation of class
 
         Inputs:
+            baseline = baseline of interferometer (m)
+            diameter = diameter of interferometer aperture (m)
             bandpass = bandpass of each spectral channel (m)
             start_wavelength = smallest wavelength of spectrum (m)
             end_wavelength = longest wavelength of spectrum (m)
@@ -477,9 +486,10 @@ class AC_interferometer(interferometer):
 
         """
 
-        interferometer.__init__(self, bandpass, start_wavelength,
-                                      end_wavelength, 2, eta, seeing, v,
-                                      incoh_scaling, num_delays, scale_delay)
+        interferometer.__init__(self, baseline, diameter, bandpass,
+                                      start_wavelength, end_wavelength, 2,
+                                      eta, seeing, v, incoh_scaling,
+                                      num_delays, scale_delay)
         self.disp_length = disp_length
         self.disp_lam_0 = disp_lam_0
 

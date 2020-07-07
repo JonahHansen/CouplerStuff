@@ -14,7 +14,9 @@ tracking and science.
 """
 
 #Set up interferometer
-pyxis = ff.tri_interferometer(bandpass = 15e-9, #m
+pyxis = ff.tri_interferometer(baseline = 20, #m
+                              diameter = 0.07, #m
+                              bandpass = 15e-9, #m
                               start_wavelength = 600e-9, #m
                               end_wavelength = 750e-9, #m
                               eta = 0.15,
