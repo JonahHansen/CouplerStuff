@@ -13,57 +13,29 @@ tracking and science.
 
 """
 
-#List of wavelength channels, with spacing 20nm (in m).
-bandpass = 15e-9
-start_wavelength = 600e-9
-end_wavelength = 750e-9
-wavelengths = np.arange(start_wavelength,end_wavelength,bandpass)[:-1] + 0.5*bandpass
-
-#Throughput (tricoupler with instrumental throughput eta)
-eta = 0.15
-throughput = 1/3*eta*1/len(wavelengths)
-
-#Turbulence Data
-seeing = 1 #arcsec
-r0 = 0.98*start_wavelength*180*3600/np.pi/seeing # Fried parameter (m)
-v = 20 # Wind speed (m/s)
-t0 = 0.31*(r0/v) #Coherent time (s)
-
-#Telescope details:
-B = 20 #Baseline (m)
-D = 0.09 #Aperture (m)
-
-#Integration times
-coh_int_time = 1.6*t0 #s
-incoh_int_time = 30*t0 #s
-
-#Scale factor for group envelope averaging:
-a = 1 - np.exp(-coh_int_time/incoh_int_time)
+#Set up interferometer
+pyxis = ff.tri_interferometer(bandpass = 15e-9, #m
+                              start_wavelength = 600e-9, #m
+                              end_wavelength = 750e-9, #m
+                              eta = 0.15,
+                              seeing = 1, #arcsec
+                              v = 20, #m/s
+                              incoh_scaling = 30,
+                              num_delays = 1000,
+                              scale_delay = 0.005)
 
 #Star Flux and visibility
-Rmag_star = 7
-F_0 = ff.star_flux(Rmag_star,coh_int_time,D,throughput)
+Rmag_star = 5
+F_0 = pyxis.star_flux(Rmag_star)
 vis = 0.5
 
-#List of trial delays to scan
-Num_delays = 1000 #Number of delays
-scale = 0.005 #How fine? Smaller = Finer
-wavenumber_bandpass = 1/start_wavelength - 1/end_wavelength
-trial_delays = scale*np.arange(-Num_delays/2+1,Num_delays/2)/wavenumber_bandpass
-
 #Number of integrations
-n_iter = 2000
-
-#Number of wavefront "cells" between the two apertures
-num_r0s = int(np.ceil(B/r0))
-
-#Calculate the number of cells required for the turbulence sim
-num_cells = ff.nearest_two_power(n_iter+num_r0s+1)
+n_iter = 1000
 
 ####################### Find Visibility Bias ##################################
 
 #Atmospheric wavefront (will move across the interferometer)
-atm_phases = ff.km1d(num_cells)
+atm_phases = pyxis.calc_atmosphere(n_iter)
 
 vis_array_num=[]
 vis_array_den=[]
@@ -73,22 +45,17 @@ print("Begin Bias")
 #Calc Bias in visibility
 for j in range(n_iter):
 
-    #Calculate the phase error difference between the two apertures
-    bad_phase = (atm_phases[j]-atm_phases[j+num_r0s])
-    #Convert to an OPD, based on the middle wavelength???
-    bad_delay = bad_phase*(0.5*(end_wavelength-start_wavelength))/(2*np.pi)
+    #Calc bad delay
+    bad_delay = pyxis.calc_bad_delay(atm_phases,j)
 
     #Calculate the output complex coherence
-    fluxes = ff.cal_tri_output(bad_delay,wavelengths,bandpass,F_0,0)
-    gamma_bias_num = 2*fluxes[0] - (fluxes[2]+fluxes[1]) + np.sqrt(3)*1j*(fluxes[2]-fluxes[1])
-    gamma_bias_den = np.sum(fluxes,axis=0)
+    gamma_bias_num,gamma_bias_den = pyxis.calc_gamma_numden(bad_delay,F_0,0)
 
     #Estimate the visibility based on the corrected coherence and append to list
     #Takes the mean over wavelengths
     vis_array_num.append(np.mean(np.abs(gamma_bias_num)**2))
     vis_array_den.append(np.mean(np.abs(gamma_bias_den)**2))
 
-#Divide the numerator of the vis by the denominator.
 vis_bias = np.mean(vis_array_num)/np.mean(vis_array_den)
 
 print("End Bias")
@@ -96,7 +63,7 @@ print("End Bias")
 ###################### Science and Delay Loop #################################
 
 #Atmospheric wavefront (will move across the interferometer)
-atm_phases = ff.km1d(num_cells)
+atm_phases = pyxis.calc_atmosphere(n_iter)
 
 #Setup arrays
 vis_array_num=[] #Numerator of the visibility
@@ -104,24 +71,22 @@ vis_array_den=[] #Denominator of the visibility
 bad_delay_array=[] #Array of atmospheric errors
 fix_delay_array=[] #Position of the delay line
 error_delay_array=[] #Residuals
-ave_delay_envelope = np.zeros(len(trial_delays))
+ave_delay_envelope = np.zeros(len(pyxis.trial_delays))
 
 #Start delay line at 0
 fix_delay = 0
 
 #Gain of the servo loop
-gain = 1*a
+gain = pyxis.a
 
 #If using a moving rectangular average, initialise the array
-rolling_average_array = np.zeros((int(incoh_int_time/coh_int_time),len(trial_delays)))
+rolling_average_array = np.zeros((int(pyxis.incoh_int_time/pyxis.coh_int_time),len(pyxis.trial_delays)))
 
 #Simulate a loop of fringe tracking and science
 for j in range(n_iter):
 
-    #Calculate the phase error difference between the two apertures
-    bad_phase = (atm_phases[j]-atm_phases[j+num_r0s])
-    #Convert to an OPD, based on the middle wavelength???
-    bad_delay = bad_phase*(0.5*(end_wavelength-start_wavelength))/(2*np.pi)
+    #Calc bad delay
+    bad_delay = pyxis.calc_bad_delay(atm_phases,j)
 
     #Add the incorrect delay to the array
     bad_delay_array.append(bad_delay*1e6)
@@ -131,22 +96,22 @@ for j in range(n_iter):
     print(f"eff delay = {eff_delay}")
 
     #Calculate the output complex coherence
-    fluxes = ff.cal_tri_output(eff_delay,wavelengths,bandpass,F_0,vis)
-    gamma_num = 2*fluxes[0] - (fluxes[2]+fluxes[1]) + np.sqrt(3)*1j*(fluxes[2]-fluxes[1])
-    gamma_den = np.sum(fluxes,axis=0)
+    gamma_num,gamma_den = pyxis.calc_gamma_numden(eff_delay,F_0,vis)
 
     #Estimate the current delay envelope
-    delay_envelope = ff.tri_group_delay_envelope(gamma_num,trial_delays,wavelengths)
+    delay_envelope = pyxis.calc_group_delay_envelope(gamma_num)
 
     #Add to running average
+
     #If using the fading memory delay
-    #ave_delay_envelope = a*delay_envelope + (1-a)*ave_delay_envelope
+    #ave_delay_envelope = pyxis.a*delay_envelope + (1-pyxis.a)*ave_delay_envelope
+
     #If using the rectangular moving average
     rolling_average_array = ff.shift_array(rolling_average_array,1,fill_value=delay_envelope)
     ave_delay_envelope = np.average(rolling_average_array,axis=0)
 
     #Find estimate the residual delay for adjustment
-    adj_delay = ff.find_tri_delay(ave_delay_envelope,trial_delays)
+    adj_delay = pyxis.find_delay(ave_delay_envelope)
     print(f"eff delay estimate = {adj_delay}")
 
     #How close was the estimate?
@@ -154,14 +119,12 @@ for j in range(n_iter):
 
     #Adjust the delay line
     fix_delay += adj_delay*gain
+
     #Add to array
     fix_delay_array.append(fix_delay*1e6)
 
     #Add the residual delay errors to the array
     error_delay_array.append((fix_delay-bad_delay)*1e6)
-
-    #Adjust the delay and calculate the new coherence????
-    #new_gamma = gamma/np.sinc(adj_delay*bandpass/wavelengths**2)*np.exp(1j*2*np.pi*fix_delay/wavelengths)
 
     #Estimate the visibility based on the corrected coherence and append to list
     #Takes the mean over wavelengths

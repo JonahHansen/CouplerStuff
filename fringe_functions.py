@@ -34,7 +34,6 @@ def fringe_flux(x,lam,bandpass,F_0,vis,disp_phase=0,offset=0):
 
     return i
 
-
 ################### Refractive Index and Dispersion Functions #################
 
 def sellmeier_equation(lam):
@@ -117,34 +116,6 @@ def phaseshift_glass(lam,length,lam_0):
 
 ########################## Other Functions ####################################
 
-def star_flux(Rmag, coh_time, D, throughput):
-    """
-    Calculates the number of photons per pixel from a star of a certain magnitude
-
-    Inputs:
-        Rmag = R magnitude of the star
-        coh_time = coherent integration time (in s)
-        D = diameter of the aperture (in m)
-        throughput = throughput per pixel of the combiner
-    Outputs:
-        Photons per pixel
-    """
-
-    #R band constants:
-    R_flux = 2.19e-11 #W/m^2/nm
-    R_bandpass = 133 #nm
-    nu = 4.56e14
-    h = 6.62607015e-34 #Js
-
-    #Fake Data:
-    f_star = R_flux*10**(-0.4*Rmag)*R_bandpass #W/m^2
-    E_star = np.pi*(D/2)**2*coh_time*f_star #J
-    F_0 = E_star/(h*nu)*throughput #(photons per pixel per integration)
-
-    print(f"Number of photons per pixel: {F_0}")
-    return F_0
-
-
 def km1d(sz, r_0_pix=None):
     """
     Algorithm:
@@ -194,13 +165,26 @@ def kmf(sz, L_0=np.inf, r_0_pix=None):
         return np.fft.irfft2(ft_wf) * np.sqrt(6.88*r_0_pix**(-5/3.))
 
 
-#Calculate nearest power of two
 def nearest_two_power(x):
+    """
+    Calculates the nearest power of two above input value
+
+    """
     return 1<<(x-1).bit_length()
 
 
-#Shifts every unit in an array down "num" places
 def shift_array(arr, num, fill_value=np.nan):
+    """
+    Shifts every unit in an array down "num" places
+
+    Inputs:
+        arr = array to perform shift_array
+        num = number of places to shift the numbers down
+        fill_value = value to put in the (now) empty spaces of the array
+    Outputs:
+        Shifted array
+
+    """
     result = np.empty_like(arr)
     if num > 0:
         result[:num] = fill_value
@@ -212,160 +196,364 @@ def shift_array(arr, num, fill_value=np.nan):
         result[:] = arr
     return result
 
+####################### Interferometer Classes ##################################
 
-####################### Tricoupler Functions ##################################
-
-def cal_tri_output(delay,wavelengths,bandpass,F_0,vis):
+class interferometer:
     """
-    Calculates the complex coherence from a simulated tricoupler
-
-    Inputs:
-        delay = total delay (s)
-        wavelengths = wavelength channels to use (m)
-        bandpass = wavelength channel width (m)
-        F_0 = total number of photons reduced by throughput
-        vis = visibility of source
-    Outputs:
-        Complex coherence for each wavelength
+    Parent interferometer class that holds relevant parameters, as well as methods
+    for doing fringe tracking
 
     """
+    def __init__(self, bandpass, start_wavelength, end_wavelength, n_outputs,
+                        eta, seeing, v, incoh_scaling, num_delays, scale_delay):
+        """
+        Initialisation of class
 
-    fluxes = np.zeros((3,len(wavelengths)))
-    i = 0
-    for output_offset in 2*np.pi/3*np.array([0,1,2]):
-        #Calculate intensity output of each fiber (each output has an offset)
-        flux = fringe_flux(delay,wavelengths,bandpass,F_0,vis,offset=output_offset)
-        #Make it noisy based on shot noise and read noise
-        shot_noise = np.random.poisson(flux)
-        fluxes[i] = np.round(shot_noise + np.random.normal(scale=1.6))
-        i += 1
+        Inputs:
+            bandpass = bandpass of each spectral channel (m)
+            start_wavelength = smallest wavelength of spectrum (m)
+            end_wavelength = longest wavelength of spectrum (m)
+            n_outputs = number of outputs for the interferometer
+            eta = inherent throughput of interferometer
+            seeing = seeing of site (arcsec)
+            v = windspeed of site (m/s)
+            incoh_scaling = how many coherence times to average group delay
+            num_delays = number of trial delays to scan
+            scale_delay = scale factor for number of trial delays (smaller = finer)
 
-    return fluxes
+        """
 
-    #Combine the outputs into the coherence
-    #gamma = (3*fluxes[0] + np.sqrt(3)*1j*(fluxes[2]-fluxes[1]))/np.sum(fluxes,axis=0)-1
+        self.bandpass = bandpass
+        self.wavelengths = np.arange(start_wavelength,end_wavelength,bandpass)[:-1] + 0.5*bandpass
+        self.wavenumber_bandpass = 1/start_wavelength - 1/end_wavelength
+
+        #Throughput (tricoupler with instrumental throughput eta)
+        self.throughput = 1/n_outputs*eta*1/len(self.wavelengths)
+
+        #Turbulence Data
+        self.r0 = 0.98*start_wavelength*180*3600/np.pi/seeing # Fried parameter (m)
+        self.t0 = 0.31*(self.r0/v) #Coherent time (s)
+
+        #Telescope details:
+        self.B = 20 #Baseline (m)
+        self.D = 0.07 #Aperture (m)
+
+        #Integration times
+        self.coh_int_time = 1.6*self.t0 #s
+        self.incoh_int_time = incoh_scaling*self.t0 #s
+
+        #Scale factor for group envelope averaging (and gain of servo loop):
+        self.a = 1 - np.exp(-self.coh_int_time/self.incoh_int_time)
+
+        #List of trial delays to scan for group delay
+        self.trial_delays = scale_delay*np.arange(-num_delays/2+1,num_delays/2)/self.wavenumber_bandpass
 
 
-def tri_group_delay_envelope(gamma,trial_delays,wavelengths,plot=False):
+    def star_flux(self, Rmag):
+        """
+        Given a star R magnitude, find the number of photons per pixel on the
+        detector
+
+        Inputs:
+            Rmag = Star's R magnitude
+        Outputs:
+            Number of photons per pixel on the detector
+
+        """
+
+        #R band constants:
+        R_flux = 2.19e-11 #W/m^2/nm
+        R_bandpass = 133 #nm
+        nu = 4.56e14
+        h = 6.62607015e-34 #Js
+
+        #Fake Data:
+        f_star = R_flux*10**(-0.4*Rmag)*R_bandpass #W/m^2
+        E_star = np.pi*(self.D/2)**2*self.coh_int_time*f_star #J
+        F_0 = E_star/(h*nu)*self.throughput #(photons per pixel per integration)
+
+        print(f"Number of photons per pixel: {F_0}")
+
+        return F_0
+
+
+    def calc_atmosphere(self,n_iter):
+        """
+        Given an number of iterations, create an array of turbulent atmospheric
+        phases based on Kolmogorov Turbulence
+
+        Inputs:
+            n_iter = number of iterations for simulation
+        Output:
+            array of atmospheric phases
+
+        """
+
+        #Number of wavefront "cells" between the two apertures
+        self.num_r0s = int(np.ceil(self.B/self.r0))
+
+        #Calculate the number of cells required for the turbulence sim
+        num_cells = nearest_two_power(n_iter+self.num_r0s+1)
+
+        #Create the atmosphere
+        atm_phases = km1d(num_cells)
+
+        return atm_phases
+
+
+    def calc_bad_delay(self,atm_phases,index):
+        """
+        Calculate the bad delay induced by the turbulent atmosphere
+
+        Inputs:
+            atm_phases = List of turbulent atmospheric phases
+            index = index of iteration of simulation
+        Outputs:
+            bad delay from atmosphere
+
+        """
+
+        #Calculate the phase error difference between the two apertures
+        bad_phase = (atm_phases[index]-atm_phases[index+self.num_r0s])
+        #Convert to an OPD, based on the middle wavelength???
+        bad_delay = bad_phase*(0.5*(self.wavelengths[-1]-self.wavelengths[0]))/(2*np.pi)
+
+        return bad_delay
+
+
+
+class tri_interferometer(interferometer):
     """
-    Given a complex coherence and a list of trial delays, calculate the group
-    delay envelope
+    Class for the tricoupler interferometer with 3 outputs
+    """
+    def __init__(self, bandpass, start_wavelength, end_wavelength,
+                        eta, seeing, v, incoh_scaling, num_delays, scale_delay):
+        """
+        Initialisation of class
 
-    Inputs:
-        gamma = Complex coherence
-        trial_delays = list of trial delays
-        wavelengths = list of wavelength channels
-        plot = Whether to plot the white light fringe intensity against the
-               trial delays.
-    Output:
-        List of white light fringe intensities for each trial delay
+        Inputs:
+            bandpass = bandpass of each spectral channel (m)
+            start_wavelength = smallest wavelength of spectrum (m)
+            end_wavelength = longest wavelength of spectrum (m)
+            eta = inherent throughput of interferometer
+            seeing = seeing of site (arcsec)
+            v = windspeed of site (m/s)
+            incoh_scaling = how many coherence times to average group delay
+            num_delays = number of trial delays to scan
+            scale_delay = scale factor for number of trial delays (smaller = finer)
 
+        """
+
+        interferometer.__init__(self, bandpass, start_wavelength,
+                                      end_wavelength, 3, eta, seeing, v,
+                                      incoh_scaling, num_delays, scale_delay)
+
+
+    def calc_output(self,delay,F_0,vis):
+        """
+        Calculates the output fluxes from a simulated tricoupler
+
+        Inputs:
+            delay = total delay (s)
+            F_0 = total number of photons reduced by throughput
+            vis = visibility of source
+        Outputs:
+            Complex coherence for each wavelength
+
+        """
+
+        fluxes = np.zeros((3,len(self.wavelengths)))
+        i = 0
+        for output_offset in 2*np.pi/3*np.array([0,1,2]):
+            #Calculate intensity output of each fiber (each output has an offset)
+            flux = fringe_flux(delay,self.wavelengths,self.bandpass,F_0,vis,offset=output_offset)
+            #Make it noisy based on shot noise and read noise
+            shot_noise = np.random.poisson(flux)
+            fluxes[i] = np.round(shot_noise + np.random.normal(scale=1.6))
+            i += 1
+
+        return fluxes
+
+
+    def calc_gamma_numden(self,bad_delay,F_0,vis):
+        """
+        Returns the numerator and denominator of the complex coherence from a tricoupler
+
+        Inputs:
+            delay = total delay (s)
+            F_0 = total number of photons reduced by throughput
+            vis = visibility of source
+        Outputs:
+            numerator and denominator of complex coherence
+
+        """
+
+        fluxes = self.calc_output(bad_delay,F_0,vis)
+        gamma_num = 2*fluxes[0] - (fluxes[2]+fluxes[1]) + np.sqrt(3)*1j*(fluxes[2]-fluxes[1])
+        gamma_den = np.sum(fluxes,axis=0)
+
+        return gamma_num, gamma_den
+
+
+    def calc_gamma(self,bad_delay,F_0,vis):
+        """
+        Returns the complex coherence from a tricoupler
+
+        Inputs:
+            delay = total delay (s)
+            F_0 = total number of photons reduced by throughput
+            vis = visibility of source
+        Outputs:
+            numerator and denominator of complex coherence
+
+        """
+
+        fluxes = self.calc_output(bad_delay,F_0,vis)
+
+        return (3*fluxes[0] + np.sqrt(3)*1j*(fluxes[2]-fluxes[1]))/np.sum(fluxes,axis=0)-1
+
+
+    def calc_group_delay_envelope(self,gamma,plot=False):
+        """
+        Given a complex coherence, calculate the group delay envelope for the
+        list of trial delays
+
+        Inputs:
+            gamma = Complex coherence
+            plot = Whether to plot the white light fringe intensity against the
+                   trial delays.
+        Output:
+            List of white light fringe intensities for each trial delay
+
+        """
+
+        phasors = gamma*np.exp(1j*2*np.pi*np.outer(self.trial_delays,1/self.wavelengths))
+        F_array = np.abs(np.sum(phasors,axis=1))**2
+        if plot:
+            plt.plot(self.trial_delays,F_array) #Plot it
+            plt.show()
+
+        return F_array
+
+
+    def find_delay(self,delay_envelope):
+        """
+        Given a group delay envelope, find an estimate of the group delay
+
+        Inputs:
+            delay_envelope = List of white light fringe intensities for each trial delay
+        Output:
+            Estimation of the group delay
+
+        """
+
+        return self.trial_delays[np.argmax(delay_envelope)]
+
+
+
+class AC_interferometer(interferometer):
+    """
+    Class for the AC interferometer with only 2 outputs
     """
 
-    phasors = gamma*np.exp(1j*2*np.pi*np.outer(trial_delays,1/wavelengths))
-    F_array = np.abs(np.sum(phasors,axis=1))**2
-    if plot:
-        plt.plot(trial_delays,F_array) #Plot it
-        plt.show()
+    def __init__(self, bandpass, start_wavelength, end_wavelength,
+                       eta, seeing, v, incoh_scaling, num_delays,
+                       scale_delay, disp_length, disp_lam_0):
+        """
+        Initialisation of class
 
-    return F_array
+        Inputs:
+            bandpass = bandpass of each spectral channel (m)
+            start_wavelength = smallest wavelength of spectrum (m)
+            end_wavelength = longest wavelength of spectrum (m)
+            eta = inherent throughput of interferometer
+            seeing = seeing of site (arcsec)
+            v = windspeed of site (m/s)
+            incoh_scaling = how many coherence times to average group delay
+            num_delays = number of trial delays to scan
+            scale_delay = scale factor for number of trial delays (smaller = finer)
+            disp_length = length of extra bit of glass in coupler to provide dispersion (m)
+            disp_lam_0 = central wavelength for dispersion (m)
 
+        """
 
-def find_tri_delay(delay_envelope,trial_delays):
-    """
-    Given a group delay envelope, find an estimate of the group delay
-
-    Inputs:
-        delay_envelope = List of white light fringe intensities for each trial delay
-        trial_delays = list of trial delays
-    Output:
-        Estimation of the group delay
-
-    """
-
-    return trial_delays[np.argmax(delay_envelope)]
-
-
-########################## AC Functions #######################################
-
-def cal_AC_output(delay,wavelengths,bandpass,length,lam_0,F_0,vis):
-    """
-    Calculates the flux output from a simulated AC coupler
-
-    Inputs:
-        delay = total delay (s)
-        wavelengths = wavelength channels to use (m)
-        bandpass = wavelength channel width (m)
-        length = Length of extra glass for dispersion (m)
-        lam_0 = Central wavelength for dispersion (m)
-        F_0 = total number of photons reduced by throughput
-        vis = visibility of source
-    Outputs:
-        Fluxes A and C for each wavelength
-
-    """
-
-    fluxes = np.zeros((2,len(wavelengths)))
-    i = 0
-    for output_offset in np.pi*np.array([0,1]):
-        #Calculate intensity output of each fiber (each output has an offset)
-        flux = fringe_flux(delay,wavelengths,bandpass,F_0,vis,
-                           phaseshift_glass(wavelengths,length,lam_0),offset=output_offset)
-        #Make it noisy based on shot noise and read noise
-        shot_noise = np.random.poisson(flux)
-        fluxes[i] = np.round(shot_noise + np.random.normal(scale=1.6))
-        i += 1
-
-    return fluxes
+        interferometer.__init__(self, bandpass, start_wavelength,
+                                      end_wavelength, 2, eta, seeing, v,
+                                      incoh_scaling, num_delays, scale_delay)
+        self.disp_length = disp_length
+        self.disp_lam_0 = disp_lam_0
 
 
-def AC_group_delay_envelope(gamma_r,delays,visibilities,wavelengths,bandpass,length,lam_0):
+    def calc_output(self,delay,F_0,vis):
+        """
+        Calculates the flux output from a simulated AC coupler
 
-    """
-    Given the real part of the coherence, a list of trial delays and a list of trial visibilities,
-    calculate the chi^2 of each combination of delays and visibilities.
+        Inputs:
+            delay = total delay (s)
+            F_0 = total number of photons reduced by throughput
+            vis = visibility of source
+        Outputs:
+            Fluxes A and C for each wavelength
 
-    Inputs:
-        gamma_r = Real part of the complex coherence
-        delays = list of trial delays
-        visibilities = list of trial visibilities
-        bandpass = bandpass of the wavelength channels
-        wavelengths = list of wavelength channels
-        length = length of the glass extension
-        lam_0 = central wavelength for dispersion
-    Output:
-        chi^2 array
+        """
 
-    """
+        fluxes = np.zeros((2,len(self.wavelengths)))
+        i = 0
+        for output_offset in np.pi*np.array([0,1]):
+            #Calculate intensity output of each fiber (each output has an offset)
+            flux = fringe_flux(delay,self.wavelengths,self.bandpass,F_0,vis,
+                               phaseshift_glass(self.wavelengths,self.disp_length,
+                               self.disp_lam_0),offset=output_offset)
+            #Make it noisy based on shot noise and read noise
+            shot_noise = np.random.poisson(flux)
+            fluxes[i] = np.round(shot_noise + np.random.normal(scale=1.6))
+            i += 1
 
-    #Calculate the trial fringes (with numpy magic)
-    envelope = np.sinc(np.outer(delays*bandpass,1/wavelengths**2))
-    sinusoid = np.cos(np.outer(2*np.pi*delays,1/wavelengths) - phaseshift_glass(wavelengths,length,lam_0))
-    trial_fringes = np.tensordot(visibilities,envelope*sinusoid,axes=0)
-
-    #Calculate chi^2 element
-    chi_lam = (trial_fringes - gamma_r)**2
-    #Sum over wavelength
-    chi_2 = np.sum(chi_lam,axis=2)
-
-    return chi_2
+        return fluxes
 
 
-def find_AC_delay_vis(chi_2,trial_delays,trial_vis):
-    """
-    Given a chi^2 array, plus a list of trial delays and visibilities,
-    return the estimate of the delay and visibility
+    def calc_group_delay_envelope(self,gamma_r,plot=False):
+        """
+        Given the real part of the coherence, calculate the chi^2 of each
+        trial delay.
 
-    Inputs:
-        chi_2 = chi^2 array
-        trial_delays = list of trial delays
-        trial_vis = list of trial visibilities
+        Inputs:
+            gamma_r = Real part of the complex coherence
+            plot = Whether to plot the chi^2 likelihood against the
+                   trial delays.
+        Output:
+            chi^2 array
 
-    Output:
-        Estimation of the group delay and visibility
+        """
 
-    """
-    min_index = np.unravel_index(np.argmin(chi_2),chi_2.shape)
+        #Calculate the trial fringes
+        envelope = np.sinc(np.outer(self.trial_delays*self.bandpass,1/self.wavelengths**2))
+        sinusoid = np.cos(np.outer(2*np.pi*self.trial_delays,1/self.wavelengths) -
+                   phaseshift_glass(self.wavelengths,self.disp_length,self.disp_lam_0))
+        trial_fringes = envelope*sinusoid
 
-    #Find the best fit visibility and delay
-    return trial_delays[min_index[1]],trial_vis[min_index[0]]
+        #Calculate chi^2 element (normalising to remove visibility dependence)
+        chi_lam = (trial_fringes/np.sum(np.abs(trial_fringes),axis=1)[:,None] - gamma_r/(np.sum(np.abs(gamma_r))))**2
+
+        #Sum over wavelength
+        chi_2 = np.sum(chi_lam,axis=1)
+
+        if plot:
+            plt.plot(pyxis.trial_delays,np.exp(-chi_2**2/2)) #Plot the likelihood
+            plt.show()
+
+        return chi_2
+
+
+    def find_delay(self,delay_envelope):
+        """
+        Given a chi^2 envelope, find an estimate of the group delay
+
+        Inputs:
+            delay_envelope = List of chi^2 values for each trial delay
+        Output:
+            Estimation of the group delay
+
+        """
+
+        return self.trial_delays[np.argmin(delay_envelope)]
