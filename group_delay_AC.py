@@ -37,18 +37,16 @@ def plot_delay(bad_delay,vis,mag,length,fmt):
     F_0 = pyxis.star_flux(mag)
     #Find output
     fluxes = pyxis.calc_output(bad_delay,F_0,vis)
-    #Find coherence
-    gamma_r = (fluxes[0] - fluxes[1])/(fluxes[0]+fluxes[1])
     #Chi^2 fit
-    chi_2 = pyxis.calc_group_delay_envelope(gamma_r)
+    chi_2 = pyxis.calc_group_delay_envelope(fluxes)
     print(pyxis.find_delay(chi_2))
-
-    plt.plot(pyxis.trial_delays,np.exp(-chi_2**2/2),fmt)
+    plt.plot(pyxis.trial_delays,chi_2,fmt)
+    #plt.plot(pyxis.trial_delays,np.exp(-chi_2**2/2),fmt)
     return
 
 bad_delay = 8.34e-7
 vis = 0.5
 plot_delay(bad_delay,vis,0,0.002,'r-')
-plot_delay(bad_delay,vis,6,0.002,'b-')
+plot_delay(bad_delay,vis,5,0.002,'b-')
 plt.vlines(bad_delay,0,1)
 plt.show()

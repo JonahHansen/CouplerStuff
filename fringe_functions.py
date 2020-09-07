@@ -517,12 +517,13 @@ class AC_interferometer(interferometer):
             #Make it noisy based on shot noise and read noise
             shot_noise = np.random.poisson(flux)
             fluxes[i] = np.round(shot_noise + np.random.normal(scale=1.6))
+            fluxes[i] = np.where(fluxes[i]<0, 0, fluxes[i])
             i += 1
 
         return fluxes
 
 
-    def calc_group_delay_envelope(self,gamma_r,plot=False):
+    def calc_group_delay_envelope(self,fluxes,plot=False):
         """
         Given the real part of the coherence, calculate the chi^2 of each
         trial delay.
@@ -535,6 +536,16 @@ class AC_interferometer(interferometer):
             chi^2 array
 
         """
+        gamma_r = (fluxes[0] - fluxes[1])/(fluxes[0] + fluxes[1])
+        sig_flux = np.sqrt(fluxes[0] + fluxes[1])
+        #sig_gamma_r = gamma_r*sig_flux*np.sqrt(1/(fluxes[0] - fluxes[1])**2 + 1/(fluxes[0] + fluxes[1])**2)
+
+        gamma_r = (fluxes[0] - fluxes[1])
+        sig_flux = np.sqrt(fluxes[0] + fluxes[1])
+        sig_gamma_r = sig_flux
+
+
+        #import pdb; pdb.set_trace()
 
         #Calculate the trial fringes
         envelope = np.sinc(np.outer(self.trial_delays*self.bandpass,1/self.wavelengths**2))
@@ -543,7 +554,8 @@ class AC_interferometer(interferometer):
         trial_fringes = envelope*sinusoid
 
         #Calculate chi^2 element (normalising to remove visibility dependence)
-        chi_lam = (trial_fringes/np.sum(np.abs(trial_fringes),axis=1)[:,None] - gamma_r/(np.sum(np.abs(gamma_r))))**2
+        chi_lam = (trial_fringes/np.sum(np.abs(trial_fringes),axis=1)[:,None] - gamma_r/(np.sum(np.abs(gamma_r))))**2/(sig_gamma_r/(np.sum(np.abs(gamma_r))))**2
+        #chi_lam = (trial_fringes/np.sum(np.abs(trial_fringes),axis=1)[:,None] - gamma_r/(np.sum(np.abs(gamma_r))))**2/trial_fringes/np.sum(np.abs(trial_fringes),axis=1)[:,None]
 
         #Sum over wavelength
         chi_2 = np.sum(chi_lam,axis=1)

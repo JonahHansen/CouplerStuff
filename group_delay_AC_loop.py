@@ -101,7 +101,6 @@ for j in range(n_iter):
     #Calculate the output complex coherence
     fluxes = pyxis.calc_output(eff_delay,F_0,vis)
 
-    gamma_r = (fluxes[0] - fluxes[1])/(fluxes[0] + fluxes[1])
     gamma_r_num_array.append((fluxes[0] - fluxes[1])**2)
     gamma_r_den_array.append((fluxes[0] + fluxes[1]))
 
@@ -113,7 +112,7 @@ for j in range(n_iter):
     vis_array.append(vis_est)
 
     #Estimate the current delay envelope
-    delay_envelope = pyxis.calc_group_delay_envelope(gamma_r)
+    delay_envelope = pyxis.calc_group_delay_envelope(fluxes)
 
     #Add to running average
 
